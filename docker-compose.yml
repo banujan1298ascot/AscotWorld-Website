@@ -1,0 +1,25 @@
+# Local Postgres for dev + the gated integration tests in
+# src/server/batch-book/*.integration.test.ts. Not used in production —
+# there is no production deployment target configured yet.
+#
+# Usage:
+#   docker compose up -d
+#   cp .env.example .env   # DATABASE_URL already points at this container
+#   npm run db:migrate
+#   npm run db:seed
+#   npm test
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ascotworld
+    ports:
+      - "5432:5432"
+    volumes:
+      - ascotworld_pg_data:/var/lib/postgresql/data
+
+volumes:
+  ascotworld_pg_data:

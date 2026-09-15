@@ -1,0 +1,326 @@
+@import "tailwindcss";
+
+/* ============================================================================
+   AscotWorld Portal — design tokens
+   Brand values taken from ascotlabs.com:
+     brand blue   #3A6DD6
+     brand navy   #022166
+     signature    linear-gradient(90deg, #3A6DD6, #022166)
+     typeface     Manrope
+   The molecular "o" in the Ascot logo is the motif this UI is built around:
+   nodes and connections, echoed in the mark, dividers and empty states.
+   ========================================================================= */
+
+:root {
+  /* --- brand scale ------------------------------------------------------ */
+  --brand-50: #eef3fc;
+  --brand-100: #d8e4f8;
+  --brand-200: #b3c9f1;
+  --brand-300: #85a6e7;
+  --brand-400: #5b86dc;
+  --brand-500: #3a6dd6; /* official brand blue */
+  --brand-600: #2f57ad;
+  --brand-700: #234283;
+  --brand-800: #14306a;
+  --brand-900: #022166; /* official brand navy */
+  --brand-950: #01143d;
+
+  --brand-gradient: linear-gradient(90deg, #3a6dd6, #022166);
+
+  /* --- semantic surfaces (light) ---------------------------------------- */
+  --background: #f6f8fc;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-sunken: #eef2f9;
+  --foreground: #1e1e1e; /* Ascot body text */
+  --muted-foreground: #5c6880;
+  --subtle-foreground: #808080; /* Ascot secondary grey */
+  --border: #dde5f2;
+  --border-strong: #c3d0e6;
+  --ring: #3a6dd6;
+
+  --primary: #3a6dd6;
+  --primary-foreground: #ffffff;
+
+  /* --- batch lifecycle --------------------------------------------------
+     Each status carries an icon and a label in the UI as well as colour,
+     so meaning never depends on colour alone. */
+  --status-scheduled: #64748b;
+  --status-scheduled-bg: #eef2f7;
+  --status-production: #3a6dd6;
+  --status-production-bg: #e6eefb;
+  --status-qa: #b45309;
+  --status-qa-bg: #fdf3e3;
+  --status-released: #047857;
+  --status-released-bg: #e3f5ee;
+  --status-cancelled: #b91c1c;
+  --status-cancelled-bg: #fdeceb;
+
+  --danger: #c2261f;
+  --danger-bg: #fdeceb;
+  --success: #047857;
+  --warning: #b45309;
+
+  /* --- production line identity ------------------------------------------
+     Liquids, Tablets and Capsules run as independent parallel teams (see
+     `parallelLane` on Resource) — each gets its own hue, chosen clear of the
+     status palette above, so a lane reads by colour before the label is even
+     read. Every use still pairs colour with an icon and text, per the same
+     rule as batch status. */
+  --line-liquids: #0f766e;
+  --line-liquids-bg: #e3f6f4;
+  --line-capsules: #6d28d9;
+  --line-capsules-bg: #efe8fd;
+  --line-tablets: #a21caf;
+  --line-tablets-bg: #fbe7fa;
+
+  /* --- dense dashboard spacing scale ------------------------------------ */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  --radius-sm: 0.25rem;
+  --radius: 0.5rem;
+  --radius-lg: 0.75rem;
+
+  --shadow-card: 0 1px 2px rgb(2 33 102 / 0.06), 0 1px 3px rgb(2 33 102 / 0.04);
+  --shadow-raised: 0 4px 12px rgb(2 33 102 / 0.1), 0 1px 3px rgb(2 33 102 / 0.06);
+  --shadow-overlay: 0 16px 48px rgb(2 33 102 / 0.22);
+
+  /* --- glass surfaces & glow ---------------------------------------------
+     Opt-in dashboard-style elevation: translucent surfaces over a blurred
+     backdrop, and a coloured glow used on hover instead of a plain shadow. */
+  --glass-bg: linear-gradient(155deg, rgb(255 255 255 / 0.86), rgb(255 255 255 / 0.55));
+  --glass-border: rgb(255 255 255 / 0.7);
+  --shadow-glow: 0 10px 30px rgb(58 109 214 / 0.16), 0 2px 8px rgb(2 33 102 / 0.06);
+}
+
+/* Dark mode is a deliberate re-tone, not an inversion: navy-derived surfaces
+   with a lifted brand blue so it stays legible against them. Background,
+   card and accent tones below are sampled directly from the Vision UI
+   Pro dashboard (body background, card gradient and icon-badge gradient),
+   so the dark theme reads as the same palette rather than an approximation. */
+:root[data-theme="dark"] {
+  --background: #030c1d;
+  --surface: #0a0e23;
+  --surface-raised: #0d1030;
+  --surface-sunken: #05091a;
+  --foreground: #e8edf7;
+  --muted-foreground: #9aa8c2;
+  --subtle-foreground: #7c8aa5;
+  --border: #1c2540;
+  --border-strong: #2c3760;
+
+  --primary: #0075ff;
+  --primary-foreground: #ffffff;
+
+  --status-scheduled: #a6b3c9;
+  --status-scheduled-bg: #1c2740;
+  --status-production: #2b8cff;
+  --status-production-bg: #0f2a55;
+  --status-qa: #e0a94b;
+  --status-qa-bg: #33260f;
+  --status-released: #45c19a;
+  --status-released-bg: #0e2e26;
+  --status-cancelled: #f08a84;
+  --status-cancelled-bg: #38181a;
+
+  --danger: #f08a84;
+  --danger-bg: #38181a;
+  --success: #45c19a;
+  --warning: #e0a94b;
+
+  --line-liquids: #2dd4bf;
+  --line-liquids-bg: #0f2e2b;
+  --line-capsules: #b39ef7;
+  --line-capsules-bg: #241a3d;
+  --line-tablets: #e879f9;
+  --line-tablets-bg: #3a1638;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-raised: 0 4px 14px rgb(0 0 0 / 0.5);
+  --shadow-overlay: 0 16px 48px rgb(0 0 0 / 0.6);
+
+  /* Exact card gradient sampled from Vision UI Pro (rgba(6,11,40,0.94) to
+     rgba(10,14,35,0.49) at 127.09deg). */
+  --glass-bg: linear-gradient(127.09deg, rgb(6 11 40 / 0.94) 19.41%, rgb(10 14 35 / 0.49) 76.65%);
+  --glass-border: rgb(255 255 255 / 0.06);
+  --shadow-glow: 0 10px 32px rgb(0 117 255 / 0.35), 0 2px 10px rgb(0 0 0 / 0.5);
+
+  /* Vision UI's signature icon-badge/accent gradient, overriding the light
+     theme's Ascot navy gradient for dark mode only. */
+  --brand-gradient: linear-gradient(310deg, #0075ff, #21d4fd);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ring: var(--ring);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-brand-50: var(--brand-50);
+  --color-brand-100: var(--brand-100);
+  --color-brand-200: var(--brand-200);
+  --color-brand-300: var(--brand-300);
+  --color-brand-400: var(--brand-400);
+  --color-brand-500: var(--brand-500);
+  --color-brand-600: var(--brand-600);
+  --color-brand-700: var(--brand-700);
+  --color-brand-800: var(--brand-800);
+  --color-brand-900: var(--brand-900);
+  --color-brand-950: var(--brand-950);
+
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius-lg);
+
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Batch numbers, quantities and times sit in columns — tabular figures stop
+   them shifting width as values change. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Visible focus ring on every interactive element. Never removed. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+::selection {
+  background: var(--brand-200);
+  color: var(--brand-950);
+}
+
+/* Molecular motif — the connective tissue of the Ascot mark, used as a faint
+   backdrop on entry screens only. */
+.molecule-field {
+  background-image:
+    radial-gradient(circle at 18% 22%, rgb(58 109 214 / 0.16) 0, transparent 42%),
+    radial-gradient(circle at 82% 12%, rgb(2 33 102 / 0.14) 0, transparent 38%),
+    radial-gradient(circle at 68% 84%, rgb(58 109 214 / 0.12) 0, transparent 44%);
+}
+
+/* ============================================================================
+   Motion — dashboard-style card lift/glow, chart-adjacent ambient drift, and
+   a fade-up replay on route change. All neutralised by the
+   prefers-reduced-motion block below, since every rule here targets `*`.
+   ========================================================================= */
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ambient-drift {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-3%, 4%) scale(1.08);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--stagger, 0ms);
+}
+
+.ambient-blob {
+  animation: ambient-drift 9s ease-in-out infinite;
+}
+
+/* Hover lift + glow — opt in via <Card interactive />. */
+.card-interactive {
+  transition:
+    transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.2s ease;
+}
+
+.card-interactive:hover,
+.card-interactive:focus-visible {
+  transform: translateY(-3px);
+  border-color: var(--primary);
+  box-shadow: var(--shadow-glow);
+}
+
+/* Faint brand-coloured wash behind the portal shell, echoing the molecule
+   field used on entry screens without repeating it verbatim. */
+.portal-ambient {
+  background-image:
+    radial-gradient(60% 50% at 100% 0%, rgb(58 109 214 / 0.06) 0%, transparent 60%),
+    radial-gradient(50% 40% at 0% 100%, rgb(2 33 102 / 0.05) 0%, transparent 60%);
+}
+
+/* Sampled from Vision UI Pro's body-background image: an indigo glow
+   drifting from upper-right toward the centre over a near-black base. */
+:root[data-theme="dark"] .portal-ambient {
+  background-image:
+    radial-gradient(65% 55% at 85% -5%, rgb(51 67 176 / 0.4) 0%, transparent 60%),
+    radial-gradient(55% 45% at 5% 105%, rgb(53 77 176 / 0.3) 0%, transparent 60%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Scrollbars tuned to the surface tokens so they read correctly in both themes */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
