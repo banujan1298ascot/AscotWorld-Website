@@ -277,6 +277,29 @@ body {
   animation: ambient-drift 9s ease-in-out infinite;
 }
 
+/* Fills across a button while a press-and-hold is in progress, so the hold
+   reads as deliberate rather than as an unresponsive tap. Duration is kept
+   in step with HOLD_TO_ASSIGN_MS in the MES board. */
+@keyframes hold-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.hold-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0.25;
+  animation: hold-progress 450ms linear forwards;
+}
+
 /* Hover lift + glow — opt in via <Card interactive />. */
 .card-interactive {
   transition:

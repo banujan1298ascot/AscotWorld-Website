@@ -130,8 +130,14 @@ export function useStageQueue(stageId: string | undefined, pollIntervalMs: numbe
     return result;
   }
 
+  /** `operatorId` assigns the batch to that person instead of the signed-in
+   *  account — see the claim endpoint in docs/mes-api.md. */
   const claim = useCallback(
-    (batchId: string) => act(`/api/mes/stages/${stageId}/batches/${batchId}/claim`, { method: "POST" }),
+    (batchId: string, operatorId?: string) =>
+      act(`/api/mes/stages/${stageId}/batches/${batchId}/claim`, {
+        method: "POST",
+        body: JSON.stringify(operatorId ? { operatorId } : {}),
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [stageId, user, refresh],
   );

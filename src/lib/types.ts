@@ -164,6 +164,17 @@ export interface StaffMember extends Entity {
   phone: string;
   /** Demo-only credential. Real deployments must never store passwords here. */
   demoPassword: string;
+  /**
+   * The MES pipeline stage this person works at, matching
+   * `stage_definitions.sequence_number` (1 = Batch Book Entry … 7 = Warehouse).
+   *
+   * When set, the MES board shows that stage and nothing else — a Check 3
+   * operator never sees Check 4's queue, which is the point: a station tablet
+   * on the floor should only ever show the work at that station. Left unset
+   * for supervisors, QA leads and admin, who keep the full switcher across
+   * every stage.
+   */
+  mesStage?: number | null;
 }
 
 /* -------------------------------------------------------------------------- */

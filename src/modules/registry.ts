@@ -273,6 +273,20 @@ export function groupedModulesForRole(
     .filter((section) => section.modules.length > 0);
 }
 
+/**
+ * Where a staff member lands after signing in, or on opening the portal with
+ * a session already going.
+ *
+ * A station account pinned to an MES stage goes straight to its own work
+ * rather than the general dashboard — that's the whole point of a station
+ * login. Stage 1 (Batch Book Entry) has no queue of its own, so it lands in
+ * the Batch Book instead.
+ */
+export function homeRouteFor(staff: { mesStage?: number | null }): string {
+  if (staff.mesStage == null) return "/dashboard";
+  return staff.mesStage === 1 ? "/batch-book" : "/mes";
+}
+
 /** Resolve the module owning a pathname, for active-state and guarding. */
 export function moduleForPath(pathname: string): PortalModule | undefined {
   return MODULES.filter((m) => pathname === m.href || pathname.startsWith(`${m.href}/`))

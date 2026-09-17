@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { LogoMark } from "@/components/Logo";
+import { homeRouteFor } from "@/modules/registry";
 
 /** Sends people to the portal if they have a session, or to sign-in if not. */
 export default function RootPage() {
@@ -12,7 +13,7 @@ export default function RootPage() {
 
   useEffect(() => {
     if (!ready) return;
-    router.replace(user ? "/dashboard" : "/login");
+    router.replace(user ? homeRouteFor(user) : "/login");
   }, [ready, user, router]);
 
   return (

@@ -24,6 +24,21 @@ const STAFF = [
   { id: "staff_eng", name: "Reece Donnelly", role: "production" as const, department: "Engineering", email: "r.donnelly@ascotworld.example" },
   { id: "staff_wh", name: "Grace Adeyemi", role: "production" as const, department: "Warehouse", email: "g.adeyemi@ascotworld.example" },
   { id: "staff_viewer", name: "Helen Voss", role: "viewer" as const, department: "Regulatory", email: "h.voss@ascotworld.example" },
+  // MES station accounts — one per pipeline stage. Which stage each one is
+  // pinned to lives in src/lib/seed.ts (`mesStage`); this table only needs
+  // the identity, since it exists for foreign-key attribution.
+  { id: "staff_stage_1", name: "Nadia Farouk", role: "production" as const, department: "Production", email: "n.farouk@ascotworld.example" },
+  { id: "staff_stage_2", name: "Liam Byrne", role: "production" as const, department: "Production", email: "l.byrne@ascotworld.example" },
+  { id: "staff_stage_3", name: "Ola Adeyinka", role: "production" as const, department: "Warehouse", email: "o.adeyinka@ascotworld.example" },
+  { id: "staff_stage_4", name: "Ruth Cavendish", role: "production" as const, department: "Production", email: "r.cavendish@ascotworld.example" },
+  { id: "staff_stage_5", name: "Jacob Lindqvist", role: "production" as const, department: "Production", email: "j.lindqvist@ascotworld.example" },
+  { id: "staff_stage_6", name: "Yara Haddad", role: "qa" as const, department: "Quality Assurance", email: "y.haddad@ascotworld.example" },
+  { id: "staff_stage_7", name: "Errol Simmons", role: "production" as const, department: "Warehouse", email: "e.simmons@ascotworld.example" },
+  // Floating operators, assignable at any stage.
+  { id: "staff_float_1", name: "Farah Iqbal", role: "production" as const, department: "Production", email: "f.iqbal@ascotworld.example" },
+  { id: "staff_float_2", name: "Callum Reid", role: "production" as const, department: "Production", email: "c.reid@ascotworld.example" },
+  { id: "staff_float_3", name: "Dmitri Volkov", role: "production" as const, department: "Production", email: "d.volkov@ascotworld.example" },
+  { id: "staff_float_4", name: "Priti Shah", role: "qa" as const, department: "Quality Assurance", email: "p.shah@ascotworld.example" },
 ];
 
 /** Spec 3.0's stage table. Stage 1 (Batch Book Entry) has no claim/drag

@@ -7,6 +7,7 @@ import { Logo } from "@/components/Logo";
 import { Avatar, Button, Field, Input } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { staffCollection } from "@/lib/seed";
+import { homeRouteFor } from "@/modules/registry";
 import { ROLES, type Role } from "@/lib/types";
 
 /** One representative account per role, for one-click demo sign-in. */
@@ -21,26 +22,25 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
 
-  // Already signed in — don't show the form again.
+  // Already signed in — don't show the form again. Station accounts land on
+  // their own queue rather than the dashboard, hence homeRouteFor.
   useEffect(() => {
-    if (ready && user) router.replace("/dashboard");
+    if (ready && user) router.replace(homeRouteFor(user));
   }, [ready, user, router]);
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const result = signIn(email, password);
-    if (result.ok) {
-      router.replace("/dashboard");
-    } else {
-      setError(result.error);
-    }
+    if (!result.ok) setError(result.error);
+    // On success the effect above routes, once the session is readable.
   }
 
   function quickSignIn(role: Role) {
-    const match = staffCollection.all().find((s) => s.role === role);
+    // Station accounts are listed separately below — a role shortcut should
+    // land on the unrestricted account for that role, not a pinned station.
+    const match = staffCollection.all().find((s) => s.role === role && s.mesStage == null);
     if (!match) return;
     signInAs(match.id);
-    router.replace("/dashboard");
   }
 
   return (
@@ -214,6 +214,58 @@ export default function LoginPage() {
                   </button>
                 );
               })}
+            </div>
+          </div>
+
+          {/* ---- MES station logins ------------------------------------ */}
+          <div className="mt-6 border-t border-[var(--border)] pt-6">
+            <p className="text-xs font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
+              MES stations
+            </p>
+            <p className="mt-1.5 text-xs leading-relaxed text-[var(--muted-foreground)]">
+              One account per pipeline stage, as a tablet at that station would be signed in.
+              Each one opens straight to its own queue and can&apos;t see the other stages.
+            </p>
+
+            <div className="mt-3 grid gap-1.5">
+              {staffCollection
+                .all()
+                .filter((s) => s.mesStage != null)
+                .sort((a, b) => (a.mesStage ?? 0) - (b.mesStage ?? 0))
+                .map((person) => (
+                  <button
+                    key={person.id}
+                    type="button"
+                    onClick={() => signInAs(person.id)}
+                    className="group flex cursor-pointer items-center gap-2.5 rounded-md border
+                      border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-left
+                      transition-colors duration-150 hover:border-[var(--brand-300)]
+                      hover:bg-[var(--brand-50)]"
+                  >
+                    <span
+                      className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full
+                        text-[13px] font-extrabold text-white"
+                      style={{ background: "var(--brand-gradient)" }}
+                      aria-hidden="true"
+                    >
+                      {person.mesStage}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-bold text-foreground">
+                        {person.jobTitle}
+                      </span>
+                      <span className="block truncate text-[11px] text-[var(--muted-foreground)]">
+                        {person.name} · {person.initials}
+                      </span>
+                    </span>
+                    <ArrowRight
+                      size={14}
+                      weight="bold"
+                      className="shrink-0 text-[var(--subtle-foreground)] transition-colors
+                        duration-150 group-hover:text-[var(--brand-500)]"
+                    />
+                  </button>
+                ))}
             </div>
           </div>
         </div>

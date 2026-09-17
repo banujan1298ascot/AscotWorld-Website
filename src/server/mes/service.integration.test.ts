@@ -7,12 +7,12 @@
  * To run: `docker compose up -d`, `cp .env.example .env`, `npm run db:migrate`,
  * `npm test`.
  */
-import { and, eq, inArray } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { and, eq, inArray, isNull } from "drizzle-orm";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { ActingStaff } from "../actingStaff";
 import { confirmBatch, createDraft } from "../batch-book/service";
 import { db } from "../db/client";
-import { batchRecords, departments, stageDefinitions, stageTransitions, staff } from "../db/schema";
+import { auditLogEntries, batchRecords, departments, stageDefinitions, stageTransitions, staff } from "../db/schema";
 import { claimBatch, failBatch, forwardBatch, getStageQueue, sendBatchBack } from "./service";
 
 const RUN = Boolean(process.env.DATABASE_URL);
@@ -65,9 +65,31 @@ describe.skipIf(!RUN)("MES service (integration)", () => {
     stage4Id = stages.find((s) => s.sequenceNumber === 4)!.id;
   });
 
+  /**
+   * Claim exclusivity is enforced by a DB-level unique index across *all*
+   * open transitions, so a test that deliberately leaves a batch claimed
+   * (most of them below do — that's the state under test) would otherwise
+   * block every later test that claims as the same operator. Releasing the
+   * open claims between tests keeps each one independent without weakening
+   * what it asserts.
+   */
+  afterEach(async () => {
+    await db
+      .delete(stageTransitions)
+      .where(
+        and(
+          inArray(stageTransitions.operatorId, [dataEntry.id, operator.id, otherOperator.id]),
+          isNull(stageTransitions.completedAt),
+        ),
+      );
+  });
+
   afterAll(async () => {
     if (createdBatchIds.length > 0) {
       await db.delete(stageTransitions).where(inArray(stageTransitions.batchId, createdBatchIds));
+      // audit_log_entries -> batch_records is ON DELETE RESTRICT, so the
+      // trail has to go before the batches it points at.
+      await db.delete(auditLogEntries).where(inArray(auditLogEntries.batchId, createdBatchIds));
       await db.delete(batchRecords).where(inArray(batchRecords.id, createdBatchIds));
     }
     if (departmentId) {
@@ -104,7 +126,11 @@ describe.skipIf(!RUN)("MES service (integration)", () => {
 
     const confirmed = await confirmBatch(draft.id, dataEntry);
 
-    expect(confirmed.batchNumber).toMatch(/^M\d{2}-0001$/);
+    // M numbering restarts each year and counts across the whole database,
+    // so the sequence depends on what's already been confirmed — assert the
+    // shape rather than a specific number, which only holds on an untouched
+    // database and only for one run.
+    expect(confirmed.batchNumber).toMatch(/^M\d{2}-\d{4}$/);
     expect(confirmed.status).toBe("CONFIRMED");
     expect(confirmed.currentStageId).toBeNull();
     expect(confirmed.currentStageArrival).toBeNull();

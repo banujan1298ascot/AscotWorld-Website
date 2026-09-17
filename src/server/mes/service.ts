@@ -20,9 +20,18 @@ export type StageTransitionRow = typeof stageTransitions.$inferSelect;
 
 /** Postgres unique_violation — thrown when an operator tries to claim a
  *  second batch while already holding one open elsewhere (the DB-level
- *  guarantee behind spec 3.3's claim exclusivity). */
+ *  guarantee behind spec 3.3's claim exclusivity).
+ *
+ *  Drizzle wraps driver errors, so the pg error carrying the SQLSTATE sits
+ *  on `cause` rather than on the error thrown at us — checking only the top
+ *  level silently misses every violation and leaks a raw "Failed query:
+ *  insert into ..." to the operator instead of the message below. */
 function isUniqueViolation(err: unknown): boolean {
-  return typeof err === "object" && err !== null && (err as { code?: string }).code === "23505";
+  for (let current: unknown = err; current != null; current = (current as { cause?: unknown }).cause) {
+    if (typeof current !== "object") break;
+    if ((current as { code?: string }).code === "23505") return true;
+  }
+  return false;
 }
 
 export async function listStages(departmentId?: string): Promise<StageRow[]> {
@@ -90,11 +99,34 @@ async function requireOpenTransition(
   return row;
 }
 
-export async function claimBatch(stageId: string, batchId: string, actingStaff: ActingStaff): Promise<StageTransitionRow> {
+/**
+ * Takes a batch out of a stage's Incoming/Returned queue and puts it in the
+ * hands of one operator.
+ *
+ * `assignToOperatorId` covers the station-tablet case: the screen is signed
+ * in as the station, and the person actually doing the work is picked by
+ * name, so the transition is attributed to them rather than to whoever
+ * tapped. Omitted, this is a plain self-claim. Either way the batch belongs
+ * to exactly one operator afterwards, and only they can move it on
+ * (`canActOnTransition`).
+ */
+export async function claimBatch(
+  stageId: string,
+  batchId: string,
+  actingStaff: ActingStaff,
+  assignToOperatorId?: string | null,
+): Promise<StageTransitionRow> {
   const permission = canClaim(actingStaff);
   if (!permission.ok) throw new ApiError(403, permission.error);
 
+  const operatorId = assignToOperatorId ?? actingStaff.id;
+
   return db.transaction(async (tx) => {
+    if (operatorId !== actingStaff.id) {
+      const [assignee] = await tx.select().from(staff).where(eq(staff.id, operatorId)).limit(1);
+      if (!assignee) throw new ApiError(422, "That operator doesn't exist.");
+    }
+
     const [batch] = await tx.select().from(batchRecords).where(eq(batchRecords.id, batchId)).limit(1).for("update");
     if (!batch) throw new ApiError(404, "Batch not found.");
     if (batch.currentStageId !== stageId) {
@@ -107,14 +139,16 @@ export async function claimBatch(stageId: string, batchId: string, actingStaff: 
     try {
       const [transition] = await tx
         .insert(stageTransitions)
-        .values({ batchId, stageId, operatorId: actingStaff.id })
+        .values({ batchId, stageId, operatorId })
         .returning();
       return transition;
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw new ApiError(
           409,
-          "You already have another batch in progress — finish or return it before claiming a new one.",
+          operatorId === actingStaff.id
+            ? "You already have another batch in progress — finish or return it before claiming a new one."
+            : "That operator already has another batch in progress — they need to finish or return it first.",
         );
       }
       throw err;
