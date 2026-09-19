@@ -58,6 +58,7 @@ export default function BatchBookPage() {
 
   const [creating, setCreating] = useState(false);
   const [editingBatch, setEditingBatch] = useState<BatchRecord | null>(null);
+  const [confirmingBatch, setConfirmingBatch] = useState<BatchRecord | null>(null);
 
   if (!user) return null;
 
@@ -153,19 +154,7 @@ export default function BatchBookPage() {
                             </Button>
                           ) : null}
                           {canConfirm ? (
-                            <Button
-                              size="sm"
-                              variant="primary"
-                              onClick={async () => {
-                                if (
-                                  window.confirm(
-                                    "Confirm this batch?\n\nThis permanently assigns its batch number and dispatches it — it cannot be undone.",
-                                  )
-                                ) {
-                                  await confirmBatch(batch.id);
-                                }
-                              }}
-                            >
+                            <Button size="sm" variant="primary" onClick={() => setConfirmingBatch(batch)}>
                               <CheckCircle size={14} weight="bold" />
                               Confirm
                             </Button>
@@ -188,6 +177,17 @@ export default function BatchBookPage() {
           onCreate={async (input) => {
             await createDraft(input);
             setCreating(false);
+          }}
+        />
+      ) : null}
+
+      {confirmingBatch ? (
+        <ConfirmBatchModal
+          batch={confirmingBatch}
+          onClose={() => setConfirmingBatch(null)}
+          onConfirm={async () => {
+            await confirmBatch(confirmingBatch.id);
+            setConfirmingBatch(null);
           }}
         />
       ) : null}
@@ -315,6 +315,75 @@ function CreateDraftModal({
         <Field label="Planned manufacture date" htmlFor="planned-date">
           <Input id="planned-date" type="date" value={plannedDate} onChange={(e) => setPlannedDate(e.target.value)} />
         </Field>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * An in-app confirmation rather than `window.confirm()`: some browser
+ * contexts (embedded previews among them) block native dialogs and return
+ * false instantly, which made Confirm look like it did nothing at all.
+ */
+function ConfirmBatchModal({
+  batch,
+  onClose,
+  onConfirm,
+}: {
+  batch: BatchRecord;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // M batches are numbered but never enter Bespoke's MES — see
+  // docs/batch-book-api.md — so don't promise them a dispatch.
+  const dispatches = batch.batchType !== "M";
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Confirm this batch?"
+      description={batch.productName ?? `Type ${batch.batchType} batch`}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            icon={<CheckCircle size={15} weight="bold" />}
+            disabled={submitting}
+            onClick={async () => {
+              setSubmitting(true);
+              setError(null);
+              try {
+                await onConfirm();
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Failed to confirm this batch.");
+                setSubmitting(false);
+              }
+            }}
+          >
+            {submitting ? "Confirming…" : "Confirm batch"}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-3">
+        {error ? <PermissionNotice message={error} /> : null}
+        <p className="text-sm text-foreground">
+          This permanently assigns the next <strong>{batch.batchType}</strong> batch number
+          {dispatches ? " and sends the batch to Order/Calculation Check in the MES pipeline" : ""}. It can&apos;t
+          be undone.
+        </p>
+        {!dispatches ? (
+          <p className="text-xs text-[var(--muted-foreground)]">
+            M-type batches are numbered and confirmed here, but don&apos;t enter the MES pipeline — they wait for their
+            own pipeline.
+          </p>
+        ) : null}
       </div>
     </Modal>
   );
