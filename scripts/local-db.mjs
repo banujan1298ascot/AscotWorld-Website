@@ -10,6 +10,7 @@
  *   npm run db:seed
  */
 import EmbeddedPostgres from "embedded-postgres";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,7 +26,11 @@ const pg = new EmbeddedPostgres({
 });
 
 async function main() {
-  await pg.initialise();
+  // initdb refuses a non-empty directory, so only initialise on first run —
+  // every later run starts the existing cluster and keeps its data.
+  if (!existsSync(path.join(databaseDir, "PG_VERSION"))) {
+    await pg.initialise();
+  }
   await pg.start();
 
   try {

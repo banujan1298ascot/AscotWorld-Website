@@ -12,6 +12,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx src/server/db/seed.ts",
+    "db:seed:demo": "tsx scripts/seed-mes-demo.ts --reset",
     "test": "vitest run",
     "test:watch": "vitest"
   },
