@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import {
   DndContext,
@@ -369,14 +370,25 @@ export default function MesPipelinePage() {
 
               {/* The card travels as a floating copy rather than the one in
                   the column, so it stays above every other card and settles
-                  into place on release. */}
-              <DragOverlay dropAnimation={DROP_ANIMATION}>
-                {draggingBatch ? (
-                  <Card className="w-full rotate-2 scale-[1.03] cursor-grabbing border-[var(--primary)] shadow-[var(--shadow-overlay)]">
-                    <BatchCardBody batch={draggingBatch} />
-                  </Card>
-                ) : null}
-              </DragOverlay>
+                  into place on release.
+
+                  Rendered into <body>: the overlay is positioned fixed, and
+                  the page-transition wrapper around this page leaves a
+                  transform behind — which would make that wrapper, not the
+                  viewport, the overlay's frame of reference and leave the
+                  card floating away from the pointer. */}
+              {typeof document === "undefined"
+                ? null
+                : createPortal(
+                    <DragOverlay dropAnimation={DROP_ANIMATION}>
+                      {draggingBatch ? (
+                        <Card className="rotate-2 cursor-grabbing border-[var(--primary)] shadow-[var(--shadow-overlay)]">
+                          <BatchCardBody batch={draggingBatch} />
+                        </Card>
+                      ) : null}
+                    </DragOverlay>,
+                    document.body,
+                  )}
             </DndContext>
           ) : null}
         </>

@@ -268,8 +268,13 @@ body {
   }
 }
 
+/* `backwards`, not `both`: with `both` the final keyframe's transform stays
+   on the element for good, and a transformed ancestor becomes the frame of
+   reference for any fixed-position child — which leaves drag overlays and
+   hover cards floating away from the pointer. `backwards` still hides the
+   element through its delay, then stops applying once it has run. */
 .animate-fade-in-up {
-  animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
   animation-delay: var(--stagger, 0ms);
 }
 
