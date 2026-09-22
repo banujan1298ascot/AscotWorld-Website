@@ -6,12 +6,12 @@ import {
   Button,
   Card,
   EmptyState,
+  ErrorNotice,
   Field,
   FilterSelect,
   Input,
   Modal,
   PageHeader,
-  PermissionNotice,
   Select,
   Skeleton,
   StatusPill,
@@ -293,7 +293,7 @@ function CreateBatchModal({
       }
     >
       <div className="grid gap-3.5">
-        {error ? <PermissionNotice message={error} /> : null}
+        {error ? <ErrorNotice message={error} /> : null}
 
         <Field label="Batch type" htmlFor="batch-type" required>
           <Select id="batch-type" value={batchType} onChange={(e) => setBatchType(e.target.value as BatchType)}>
@@ -413,7 +413,7 @@ function EditBatchModal({
       }
     >
       <div className="grid gap-3.5">
-        {error ? <PermissionNotice message={error} /> : null}
+        {error ? <ErrorNotice message={error} /> : null}
 
         <Field label="Product" htmlFor="edit-product-name">
           <Input id="edit-product-name" value={productName} onChange={(e) => setProductName(e.target.value)} />

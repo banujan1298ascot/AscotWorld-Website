@@ -27,7 +27,7 @@ import {
   UserPlus,
   XCircle,
 } from "@phosphor-icons/react/dist/ssr";
-import { Avatar, Button, Card, EmptyState, Field, Modal, PageHeader, PermissionNotice, Skeleton, StatusPill, Textarea } from "@/components/ui";
+import { Avatar, Button, Card, EmptyState, ErrorNotice, Field, Modal, PageHeader, PermissionNotice, Skeleton, StatusPill, Textarea } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { BATCH_BOOK_STATUS_LABELS, useDepartments, type BatchRecord } from "@/lib/batchBook";
 import { useStageQueue, useStages, type InProgressEntry } from "@/lib/mes";
@@ -579,7 +579,7 @@ function ConfirmMoveModal({
     >
       {error ? (
         <div className="mb-3">
-          <PermissionNotice message={error} />
+          <ErrorNotice message={error} />
         </div>
       ) : null}
       <p className="text-sm text-foreground">
@@ -1003,7 +1003,7 @@ function ReasonModal({
       }
     >
       <div className="grid gap-3.5">
-        {error ? <PermissionNotice message={error} /> : null}
+        {error ? <ErrorNotice message={error} /> : null}
         {batchLabel ? <p className="text-sm font-semibold text-foreground">{batchLabel}</p> : null}
         <Field
           label="Reason"

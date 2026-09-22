@@ -12,7 +12,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
-import { X } from "@phosphor-icons/react/dist/ssr";
+import { Warning, X } from "@phosphor-icons/react/dist/ssr";
 import { LogoMark } from "./Logo";
 
 /* -------------------------------------------------------------------------- */
@@ -382,6 +382,24 @@ export function Modal({
 /* -------------------------------------------------------------------------- */
 /* Read-only notice                                                           */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * Something went wrong — a refused action, a failed save. Carries the danger
+ * colour, an icon and a role of alert, so it reads as a failure rather than
+ * as the neutral explanation `PermissionNotice` gives.
+ */
+export function ErrorNotice({ message }: { message: string }) {
+  return (
+    <p
+      role="alert"
+      className="flex items-start gap-2 rounded-md border border-[var(--danger)]/40 bg-[var(--danger-bg)]
+        px-3 py-2 text-xs font-semibold text-[var(--danger)]"
+    >
+      <Warning size={15} weight="fill" className="mt-px shrink-0" />
+      {message}
+    </p>
+  );
+}
 
 /** Explains *why* controls are unavailable rather than silently hiding them. */
 export function PermissionNotice({ message }: { message: string }) {
