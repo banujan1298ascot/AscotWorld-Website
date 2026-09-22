@@ -31,12 +31,26 @@ describe("canActOnTransition", () => {
 
   it("refuses when there's no open transition at all", () => {
     const verdict = canActOnTransition(prodStaff, undefined);
-    expect(verdict).toEqual({ ok: false, error: "You haven't claimed a batch at this stage." });
+    expect(verdict).toEqual({ ok: false, error: "This batch hasn't been started at this stage yet." });
   });
 
   it("refuses a transition that's already closed", () => {
     const transition = { operatorId: prodStaff.id, completedAt: new Date().toISOString() };
     expect(canActOnTransition(prodStaff, transition).ok).toBe(false);
+  });
+
+  it("at a supervised stage, allows someone other than the assignee to act on it", () => {
+    // Check 4: the assigned operator works the floor and never opens the
+    // app, so the supervisor running the station has to be able to move
+    // the batch on regardless of who it's assigned to.
+    const transition = { operatorId: prodStaff.id, completedAt: null };
+    const verdict = canActOnTransition(otherProdStaff, transition, { supervised: true });
+    expect(verdict.ok).toBe(true);
+  });
+
+  it("a supervised stage still refuses once the transition is closed", () => {
+    const transition = { operatorId: prodStaff.id, completedAt: new Date().toISOString() };
+    expect(canActOnTransition(otherProdStaff, transition, { supervised: true }).ok).toBe(false);
   });
 });
 

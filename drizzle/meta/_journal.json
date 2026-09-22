@@ -15,6 +15,13 @@
       "when": 1789336063315,
       "tag": "0001_mes_stage_arrival",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790075913028,
+      "tag": "0002_equal_george_stacy",
+      "breakpoints": true
     }
   ]
 }

@@ -35,6 +35,7 @@ function makeStage(id: string): StageDefinition {
     name: "Order/Calculation Check",
     failAuthority: false,
     isTerminalReleaseStage: false,
+    supervised: false,
   };
 }
 

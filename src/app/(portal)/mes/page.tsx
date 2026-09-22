@@ -145,6 +145,15 @@ export default function MesPipelinePage() {
   const isClaimedByMe = (batchId: string) =>
     Boolean(queue?.inProgress.some((e) => e.batch.id === batchId && e.operatorId === user.id));
   const isUnclaimed = (batchId: string) => Boolean(queue?.inProgress.every((e) => e.batch.id !== batchId));
+  /**
+   * Who may move an already-claimed batch on. It still has to be claimed by
+   * someone first — a supervised stage changes *who* may act once it is,
+   * not whether claiming happens at all. At an ordinary stage that someone
+   * must be the caller; at a supervised one, anyone running the station may
+   * act on a batch assigned to somebody else, since that assignee is
+   * working the floor and never opens the app.
+   */
+  const canActOn = (batchId: string) => !isUnclaimed(batchId) && (isClaimedByMe(batchId) || Boolean(currentStage?.supervised));
 
   /** Dropping on a column asks before acting, rather than moving the batch
    *  the moment a finger lifts in roughly the right place. */
@@ -158,7 +167,7 @@ export default function MesPipelinePage() {
     const zone = event.over?.id;
     if (!batch || !zone) return;
     if (zone === "zone-claim" && isUnclaimed(batch.id)) setPendingMove({ action: "claim", batch });
-    else if (zone === "zone-forward" && isClaimedByMe(batch.id)) setPendingMove({ action: "forward", batch });
+    else if (zone === "zone-forward" && canActOn(batch.id)) setPendingMove({ action: "forward", batch });
   }
 
   async function runAction(action: () => Promise<unknown>) {
@@ -175,7 +184,7 @@ export default function MesPipelinePage() {
    *  the server only lets the holder move a batch on. Claiming it as part
    *  of the same action keeps "pick it up, reject it" a single step. */
   async function withClaim(batchId: string, action: () => Promise<unknown>) {
-    if (!isClaimedByMe(batchId)) await claim(batchId);
+    if (!canActOn(batchId)) await claim(batchId);
     await action();
   }
 
@@ -344,6 +353,7 @@ export default function MesPipelinePage() {
                       key={entry.batch.id}
                       entry={entry}
                       isMine={entry.operatorId === user.id}
+                      canAct={canActOn(entry.batch.id)}
                       onHold={() => setHoldMenuBatch(entry.batch)}
                     />
                   ))}
@@ -411,11 +421,18 @@ export default function MesPipelinePage() {
       {holdMenuBatch ? (
         <BatchActionsModal
           batch={holdMenuBatch}
-          heldByMe={isClaimedByMe(holdMenuBatch.id)}
+          started={canActOn(holdMenuBatch.id)}
+          supervised={Boolean(currentStage?.supervised)}
+          nextStageName={nextStage?.name}
           canSendBack={canSendBackFromHere}
           canFail={Boolean(currentStage?.failAuthority)}
           stageNumber={currentStage?.sequenceNumber ?? 0}
           onClose={() => setHoldMenuBatch(null)}
+          onForward={async () => {
+            const batch = holdMenuBatch;
+            setHoldMenuBatch(null);
+            await runAction(() => forward(batch.id));
+          }}
           onAssign={() => {
             setAssigningBatchId(holdMenuBatch.id);
             setHoldMenuBatch(null);
@@ -440,11 +457,14 @@ export default function MesPipelinePage() {
         <AssignOperatorModal
           operators={assignableOperators}
           stageName={currentStage?.name ?? "this stage"}
+          supervised={Boolean(currentStage?.supervised)}
           onCancel={() => setAssigningBatchId(null)}
+          // Stays open on failure — a busy operator is a routine outcome
+          // here (spec 3.3's exclusivity), not something to silently
+          // swallow by closing the picker before the request even lands.
           onPick={async (operatorId) => {
-            const batchId = assigningBatchId;
+            await runAction(() => claim(assigningBatchId, operatorId));
             setAssigningBatchId(null);
-            await runAction(() => claim(batchId, operatorId));
           }}
         />
       ) : null}
@@ -596,24 +616,32 @@ function ConfirmMoveModal({
 /** The press-and-hold menu: everything that can be done to one batch. */
 function BatchActionsModal({
   batch,
-  heldByMe,
+  started,
+  supervised,
+  nextStageName,
   canSendBack,
   canFail,
   stageNumber,
   onClose,
   onAssign,
   onClaim,
+  onForward,
   onSendBack,
   onFail,
 }: {
   batch: BatchRecord;
-  heldByMe: boolean;
+  /** Already under way and actionable by this user — so it can be moved on
+   *  rather than started. */
+  started: boolean;
+  supervised: boolean;
+  nextStageName?: string;
   canSendBack: boolean;
   canFail: boolean;
   stageNumber: number;
   onClose: () => void;
   onAssign: () => void;
   onClaim: () => void;
+  onForward: () => void;
   onSendBack: () => void;
   onFail: () => void;
 }) {
@@ -630,7 +658,14 @@ function BatchActionsModal({
       }
     >
       <div className="grid gap-2">
-        {!heldByMe ? (
+        {started ? (
+          <ActionRow
+            icon={<ArrowFatRight size={20} weight="bold" />}
+            title={nextStageName ? `Send to ${nextStageName}` : "Complete batch"}
+            detail={nextStageName ? "Passes it to the next station." : "Finishes the pipeline."}
+            onClick={onForward}
+          />
+        ) : (
           <>
             <ActionRow
               icon={<HandPalm size={20} weight="bold" />}
@@ -641,11 +676,15 @@ function BatchActionsModal({
             <ActionRow
               icon={<UserPlus size={20} weight="bold" />}
               title="Assign to an operator"
-              detail="Hand it to a named person — only they can move it on."
+              detail={
+                supervised
+                  ? "Records who's doing the check — you can still move it on."
+                  : "Hand it to a named person — only they can move it on."
+              }
               onClick={onAssign}
             />
           </>
-        ) : null}
+        )}
 
         {canSendBack ? (
           <ActionRow
@@ -720,26 +759,54 @@ function ActionRow({
 function AssignOperatorModal({
   operators,
   stageName,
+  supervised,
   onCancel,
   onPick,
 }: {
   operators: StaffMember[];
   stageName: string;
+  supervised: boolean;
   onCancel: () => void;
-  onPick: (operatorId: string) => void;
+  /** May reject — a busy operator (spec 3.3's exclusivity) is a routine
+   *  outcome here, so this stays open and shows why rather than closing
+   *  before the request has even landed. */
+  onPick: (operatorId: string) => Promise<void>;
 }) {
+  const [pickingId, setPickingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function pick(operatorId: string) {
+    setPickingId(operatorId);
+    setError(null);
+    try {
+      await onPick(operatorId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That didn't work.");
+      setPickingId(null);
+    }
+  }
+
   return (
     <Modal
       open
       onClose={onCancel}
       title="Assign to an operator"
-      description={`Whoever you pick holds this batch at ${stageName} — only they can send it on.`}
+      description={
+        supervised
+          ? `Records who's doing the check at ${stageName} — you can still move the batch on yourself.`
+          : `Whoever you pick holds this batch at ${stageName} — only they can send it on.`
+      }
       footer={
-        <Button variant="secondary" onClick={onCancel}>
+        <Button variant="secondary" onClick={onCancel} disabled={pickingId !== null}>
           Cancel
         </Button>
       }
     >
+      {error ? (
+        <div className="mb-3">
+          <ErrorNotice message={error} />
+        </div>
+      ) : null}
       {operators.length === 0 ? (
         <PermissionNotice message="Nobody is set up to work this stage yet." />
       ) : (
@@ -748,9 +815,10 @@ function AssignOperatorModal({
             <button
               key={person.id}
               type="button"
-              onClick={() => onPick(person.id)}
+              disabled={pickingId !== null}
+              onClick={() => void pick(person.id)}
               className="card-interactive flex min-h-16 cursor-pointer items-center gap-3 rounded-lg
-                border border-[var(--border)] bg-[var(--surface)] p-3 text-left"
+                border border-[var(--border)] bg-[var(--surface)] p-3 text-left disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Avatar initials={person.initials} size={44} />
               <span className="min-w-0">
@@ -887,34 +955,37 @@ function DraggableBatchCard({
 function InProgressCard({
   entry,
   isMine,
+  canAct,
   onHold,
 }: {
   entry: InProgressEntry;
   isMine: boolean;
+  /** True for the holder, and for anyone running a supervised station. */
+  canAct: boolean;
   onHold: () => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: entry.batch.id,
-    disabled: !isMine,
+    disabled: !canAct,
   });
-  const { holding, handlers } = useHold(isMine ? onHold : undefined);
+  const { holding, handlers } = useHold(canAct ? onHold : undefined);
   return (
     <Card
       ref={setNodeRef}
       {...(isMine ? listeners : {})}
       {...(isMine ? attributes : {})}
       className={`transition-[transform,opacity,border-color] duration-150 ${
-        isMine ? "cursor-grab touch-none active:cursor-grabbing" : ""
+        canAct ? "cursor-grab touch-none active:cursor-grabbing" : ""
       } ${isDragging ? "opacity-40 border-dashed" : ""} ${holding ? "scale-[0.98] border-[var(--primary)]" : ""}`}
     >
       <div {...handlers}>
         <BatchCardBody batch={entry.batch} />
         <p className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-[var(--muted-foreground)]">
           <HandPalm size={12} weight="bold" />
-          {isMine ? "Held by you" : `Held by ${entry.operatorName}`}
+          {isMine ? "Held by you" : `Assigned to ${entry.operatorName}`}
         </p>
       </div>
-      {isMine ? (
+      {canAct ? (
         <div className="mt-2.5 flex flex-wrap gap-1.5">
           <Button variant="ghost" onClick={onHold}>
             <DotsThree size={20} weight="bold" />

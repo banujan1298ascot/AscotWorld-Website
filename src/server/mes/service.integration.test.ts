@@ -24,6 +24,9 @@ describe.skipIf(!RUN)("MES service (integration)", () => {
   const dataEntry: ActingStaff = { id: "test_mes_entry", role: "production" };
   const operator: ActingStaff = { id: "test_mes_operator", role: "production" };
   const otherOperator: ActingStaff = { id: "test_mes_other", role: "production" };
+  // Runs stage 4 (Supervisor Material Check): assigns the check to an
+  // operator who works the floor, then moves the batch on themselves.
+  const supervisor: ActingStaff = { id: "test_mes_supervisor", role: "production" };
 
   let departmentId: string;
   let stage1Id: string;
@@ -44,6 +47,7 @@ describe.skipIf(!RUN)("MES service (integration)", () => {
           role: otherOperator.role,
           email: "test.mes.other@example.test",
         },
+        { id: supervisor.id, name: "Test Supervisor", role: supervisor.role, email: "test.mes.supervisor@example.test" },
       ])
       .onConflictDoNothing({ target: staff.id });
 
@@ -56,7 +60,14 @@ describe.skipIf(!RUN)("MES service (integration)", () => {
         { departmentId, sequenceNumber: 1, name: "Batch Book Entry", failAuthority: false, isTerminalReleaseStage: false },
         { departmentId, sequenceNumber: 2, name: "Order/Calculation Check", failAuthority: false, isTerminalReleaseStage: false },
         { departmentId, sequenceNumber: 3, name: "Raw Material Picking", failAuthority: false, isTerminalReleaseStage: false },
-        { departmentId, sequenceNumber: 4, name: "Supervisor Material Check", failAuthority: true, isTerminalReleaseStage: false },
+        {
+          departmentId,
+          sequenceNumber: 4,
+          name: "Supervisor Material Check",
+          failAuthority: true,
+          isTerminalReleaseStage: false,
+          supervised: true,
+        },
       ])
       .returning();
     stage1Id = stages.find((s) => s.sequenceNumber === 1)!.id;
@@ -78,7 +89,7 @@ describe.skipIf(!RUN)("MES service (integration)", () => {
       .delete(stageTransitions)
       .where(
         and(
-          inArray(stageTransitions.operatorId, [dataEntry.id, operator.id, otherOperator.id]),
+          inArray(stageTransitions.operatorId, [dataEntry.id, operator.id, otherOperator.id, supervisor.id]),
           isNull(stageTransitions.completedAt),
         ),
       );
@@ -96,7 +107,7 @@ describe.skipIf(!RUN)("MES service (integration)", () => {
       await db.delete(stageDefinitions).where(eq(stageDefinitions.departmentId, departmentId));
       await db.delete(departments).where(eq(departments.id, departmentId));
     }
-    await db.delete(staff).where(inArray(staff.id, [dataEntry.id, operator.id, otherOperator.id]));
+    await db.delete(staff).where(inArray(staff.id, [dataEntry.id, operator.id, otherOperator.id, supervisor.id]));
   });
 
   async function confirmedBatchAtStage2() {
@@ -230,5 +241,38 @@ describe.skipIf(!RUN)("MES service (integration)", () => {
       .where(and(eq(stageTransitions.batchId, batch.id), eq(stageTransitions.stageId, stage4Id)));
     expect(transition.outcome).toBe("FAILED");
     expect(transition.investigationFlagged).toBe(true);
+  });
+
+  it("at a supervised stage, the assignee's holder-locked card can still be forwarded, sent back and failed by someone else", async () => {
+    // Check 4: the supervisor assigns the check to an operator who works
+    // the floor and never opens the app, then moves the batch on
+    // themselves — the assignment records who did the work without
+    // gating who may complete it.
+    const forwarded = await confirmedBatchAtStage2();
+    await claimBatch(stage2Id, forwarded.id, operator);
+    await forwardBatch(stage2Id, forwarded.id, operator); // stage 3
+    await claimBatch(stage3Id, forwarded.id, operator);
+    await forwardBatch(stage3Id, forwarded.id, operator); // stage 4
+    await claimBatch(stage4Id, forwarded.id, otherOperator); // assigned to the floor operator
+    const movedOn = await forwardBatch(stage4Id, forwarded.id, supervisor);
+    expect(movedOn.currentStageId).not.toBe(stage4Id);
+
+    const sentBack = await confirmedBatchAtStage2();
+    await claimBatch(stage2Id, sentBack.id, operator);
+    await forwardBatch(stage2Id, sentBack.id, operator);
+    await claimBatch(stage3Id, sentBack.id, operator);
+    await forwardBatch(stage3Id, sentBack.id, operator);
+    await claimBatch(stage4Id, sentBack.id, otherOperator);
+    const returned = await sendBatchBack(stage4Id, sentBack.id, supervisor, "recheck the picking slip");
+    expect(returned.currentStageId).toBe(stage3Id);
+
+    const failed = await confirmedBatchAtStage2();
+    await claimBatch(stage2Id, failed.id, operator);
+    await forwardBatch(stage2Id, failed.id, operator);
+    await claimBatch(stage3Id, failed.id, operator);
+    await forwardBatch(stage3Id, failed.id, operator);
+    await claimBatch(stage4Id, failed.id, otherOperator);
+    const result = await failBatch(stage4Id, failed.id, supervisor, "contamination found on inspection");
+    expect(result.status).toBe("FAILED");
   });
 });

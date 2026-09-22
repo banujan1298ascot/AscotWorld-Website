@@ -47,13 +47,16 @@ const STAFF = [
  *  dispatches straight into stage 2's Incoming queue. Only Check 4 onward
  *  has fail authority (spec 3.2); only Check 6 releases onward to Warehouse. */
 const BESPOKE_STAGES = [
-  { sequenceNumber: 1, name: "Batch Book Entry", failAuthority: false, isTerminalReleaseStage: false },
-  { sequenceNumber: 2, name: "Order/Calculation Check", failAuthority: false, isTerminalReleaseStage: false },
-  { sequenceNumber: 3, name: "Raw Material Picking", failAuthority: false, isTerminalReleaseStage: false },
-  { sequenceNumber: 4, name: "Supervisor Material Check", failAuthority: true, isTerminalReleaseStage: false },
-  { sequenceNumber: 5, name: "Production Check", failAuthority: true, isTerminalReleaseStage: false },
-  { sequenceNumber: 6, name: "Final QA Release", failAuthority: true, isTerminalReleaseStage: true },
-  { sequenceNumber: 7, name: "Warehouse", failAuthority: false, isTerminalReleaseStage: false },
+  { sequenceNumber: 1, name: "Batch Book Entry", failAuthority: false, isTerminalReleaseStage: false, supervised: false },
+  { sequenceNumber: 2, name: "Order/Calculation Check", failAuthority: false, isTerminalReleaseStage: false, supervised: false },
+  { sequenceNumber: 3, name: "Raw Material Picking", failAuthority: false, isTerminalReleaseStage: false, supervised: false },
+  // The supervisor is the only person at this station using the app: they
+  // assign the check to an operator on the floor and move the batch on
+  // themselves. See `supervised` in the stage_definitions schema.
+  { sequenceNumber: 4, name: "Supervisor Material Check", failAuthority: true, isTerminalReleaseStage: false, supervised: true },
+  { sequenceNumber: 5, name: "Production Check", failAuthority: true, isTerminalReleaseStage: false, supervised: false },
+  { sequenceNumber: 6, name: "Final QA Release", failAuthority: true, isTerminalReleaseStage: true, supervised: false },
+  { sequenceNumber: 7, name: "Warehouse", failAuthority: false, isTerminalReleaseStage: false, supervised: false },
 ];
 
 async function main() {
@@ -76,7 +79,12 @@ async function main() {
       .values({ departmentId: bespoke.id, ...stage })
       .onConflictDoUpdate({
         target: [stageDefinitions.departmentId, stageDefinitions.sequenceNumber],
-        set: { name: stage.name, failAuthority: stage.failAuthority, isTerminalReleaseStage: stage.isTerminalReleaseStage },
+        set: {
+          name: stage.name,
+          failAuthority: stage.failAuthority,
+          isTerminalReleaseStage: stage.isTerminalReleaseStage,
+          supervised: stage.supervised,
+        },
       });
   }
 

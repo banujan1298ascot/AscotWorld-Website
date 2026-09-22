@@ -1,0 +1,1 @@
+ALTER TABLE "stage_definitions" ADD COLUMN "supervised" boolean DEFAULT false NOT NULL;

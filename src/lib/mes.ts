@@ -17,6 +17,9 @@ export interface StageDefinition {
   name: string;
   failAuthority: boolean;
   isTerminalReleaseStage: boolean;
+  /** A station whose supervisor moves batches on for operators who don't use
+   *  the app — see the `supervised` column on stage_definitions. */
+  supervised: boolean;
 }
 
 export interface InProgressEntry {

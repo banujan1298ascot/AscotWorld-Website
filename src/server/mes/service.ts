@@ -161,14 +161,16 @@ export async function forwardBatch(stageId: string, batchId: string, actingStaff
     const [batch] = await tx.select().from(batchRecords).where(eq(batchRecords.id, batchId)).limit(1).for("update");
     if (!batch) throw new ApiError(404, "Batch not found.");
 
+    // The stage is loaded first because whether a non-holder may act depends
+    // on it — a supervised station lets its supervisor move the batch on.
+    const stage = await requireStage(tx, stageId);
     const openTransition = await requireOpenTransition(tx, stageId, batchId);
-    const ownership = canActOnTransition(actingStaff, openTransition);
+    const ownership = canActOnTransition(actingStaff, openTransition, stage);
     if (!ownership.ok) throw new ApiError(403, ownership.error);
 
     const permission = canForward(actingStaff);
     if (!permission.ok) throw new ApiError(403, permission.error);
 
-    const stage = await requireStage(tx, stageId);
     const [nextStage] = await tx
       .select()
       .from(stageDefinitions)
@@ -210,11 +212,11 @@ export async function sendBatchBack(
     const [batch] = await tx.select().from(batchRecords).where(eq(batchRecords.id, batchId)).limit(1).for("update");
     if (!batch) throw new ApiError(404, "Batch not found.");
 
+    const stage = await requireStage(tx, stageId);
     const openTransition = await requireOpenTransition(tx, stageId, batchId);
-    const ownership = canActOnTransition(actingStaff, openTransition);
+    const ownership = canActOnTransition(actingStaff, openTransition, stage);
     if (!ownership.ok) throw new ApiError(403, ownership.error);
 
-    const stage = await requireStage(tx, stageId);
     const permission = canSendBack(actingStaff, stage, notes);
     if (!permission.ok) throw new ApiError(403, permission.error);
 
@@ -260,11 +262,11 @@ export async function failBatch(
     const [batch] = await tx.select().from(batchRecords).where(eq(batchRecords.id, batchId)).limit(1).for("update");
     if (!batch) throw new ApiError(404, "Batch not found.");
 
+    const stage = await requireStage(tx, stageId);
     const openTransition = await requireOpenTransition(tx, stageId, batchId);
-    const ownership = canActOnTransition(actingStaff, openTransition);
+    const ownership = canActOnTransition(actingStaff, openTransition, stage);
     if (!ownership.ok) throw new ApiError(403, ownership.error);
 
-    const stage = await requireStage(tx, stageId);
     const permission = canFail(actingStaff, stage as StageForAuth, notes);
     if (!permission.ok) throw new ApiError(403, permission.error);
 

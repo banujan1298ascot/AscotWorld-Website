@@ -11,6 +11,8 @@ export type Verdict = { ok: true } | { ok: false; error: string };
 export interface StageForAuth {
   sequenceNumber: number;
   failAuthority: boolean;
+  /** See the `supervised` column on stage_definitions. */
+  supervised?: boolean;
 }
 
 export interface OpenTransitionForAuth {
@@ -27,14 +29,24 @@ export function canClaim(staff: ActingStaff): Verdict {
 
 /**
  * Can `staff` act on `transition` (pass forward, send back, or fail it)?
- * Only the operator who claimed it may — "the batch stays with that
+ *
+ * Normally only the operator who claimed it may — "the batch stays with that
  * operator... until they send it forward or back" (spec 3.3).
+ *
+ * A supervised stage is the exception: its operators don't use the app, so
+ * the batch is assigned to them for the record while the supervisor, who is
+ * the station's only app user, moves it on. Requiring the holder there would
+ * strand every batch the moment it was assigned.
  */
-export function canActOnTransition(staff: ActingStaff, transition: OpenTransitionForAuth | undefined): Verdict {
+export function canActOnTransition(
+  staff: ActingStaff,
+  transition: OpenTransitionForAuth | undefined,
+  stage?: Pick<StageForAuth, "supervised">,
+): Verdict {
   if (!transition || transition.completedAt !== null) {
-    return { ok: false, error: "You haven't claimed a batch at this stage." };
+    return { ok: false, error: "This batch hasn't been started at this stage yet." };
   }
-  if (transition.operatorId !== staff.id) {
+  if (transition.operatorId !== staff.id && !stage?.supervised) {
     return { ok: false, error: "Only the operator who claimed this batch can act on it." };
   }
   return { ok: true };

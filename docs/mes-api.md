@@ -45,19 +45,39 @@ like any other batch, then waits.
 
 `npm run db:seed` creates all 7 from spec 3.0:
 
-| # | Name | Fail authority | Releases to Warehouse |
-|---|---|---|---|
-| 1 | Batch Book Entry | no | no |
-| 2 | Order/Calculation Check | no | no |
-| 3 | Raw Material Picking | no | no |
-| 4 | Supervisor Material Check | **yes** | no |
-| 5 | Production Check | **yes** | no |
-| 6 | Final QA Release | **yes** | **yes** |
-| 7 | Warehouse | no | no |
+| # | Name | Fail authority | Releases to Warehouse | Supervised |
+|---|---|---|---|---|
+| 1 | Batch Book Entry | no | no | no |
+| 2 | Order/Calculation Check | no | no | no |
+| 3 | Raw Material Picking | no | no | no |
+| 4 | Supervisor Material Check | **yes** | no | **yes** |
+| 5 | Production Check | **yes** | no | no |
+| 6 | Final QA Release | **yes** | **yes** | no |
+| 7 | Warehouse | no | no | no |
 
 Only Check 4 onward can fail a batch (spec 3.2) — enforced by checking the
 stage's own `fail_authority` column, not the acting user's role, since the
 spec's restriction is about the stage, not who's operating it.
+
+### Supervised stages
+
+Clarified 2026-09-22: at Check 4, the operators doing the actual material
+check work the floor and never sign into the app at all — the supervisor is
+the only person at that station who does. So the ordinary "only the operator
+who claimed it may act on it" rule (below) would strand every batch the
+moment the supervisor assigned it to someone.
+
+`stage_definitions.supervised` marks a stage where claiming still records
+*who the work is assigned to* (for the audit trail and the "held by" label),
+but does **not** restrict who may forward, send back, or fail it — anyone
+with `mes.claim`/`mes.pass` acting at that stage may, not just the assignee.
+`canActOnTransition` (`src/server/mes/validation.ts`) takes the stage as an
+optional third argument for exactly this — omit it and the rule is the
+ordinary holder-only one.
+
+This is a property of the *stage*, not a role, the same way `fail_authority`
+is: a department could have more than one supervised station, and nothing
+here assumes Check 4 is the only one.
 
 ---
 
@@ -71,7 +91,8 @@ spec's restriction is about the stage, not who's operating it.
   hide among fresh work.
 - **In progress**: an open `stage_transitions` row exists — the batch is
   claimed by whichever operator holds it and stays with them (spec 3.3)
-  until they act.
+  until they act. At a supervised stage (see above) it stays *assigned* to
+  them, but anyone acting at that stage — the supervisor — may move it on.
 - **Claim**: inserts the open transition. A DB-level partial unique index
   (`stage_transitions_active_operator_unique`, added in Phase 1's schema)
   means an operator physically cannot claim a second batch while already

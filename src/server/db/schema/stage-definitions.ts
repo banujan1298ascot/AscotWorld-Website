@@ -22,6 +22,17 @@ export const stageDefinitions = pgTable(
     failAuthority: boolean("fail_authority").notNull().default(false),
     /** Does completing this stage release the batch onward (e.g. Check 6 -> Warehouse)? */
     isTerminalReleaseStage: boolean("is_terminal_release_stage").notNull().default(false),
+    /**
+     * Is this station run by a supervisor on behalf of its operators?
+     *
+     * At an ordinary stage the person who claimed a batch is the only one who
+     * can move it on. At a supervised one (Check 4, Supervisor Material Check)
+     * the operators work on the floor and don't use the app at all — the
+     * supervisor assigns the work to them by name and then moves it on
+     * themselves, so the claim records who did the work without also gating
+     * who may complete it.
+     */
+    supervised: boolean("supervised").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
