@@ -31,7 +31,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { pushNotification } from "@/lib/notifications";
 import { batchCollection, staffCollection } from "@/lib/seed";
-import { conflictedBatchIds, findConflicts, resourceById } from "@/lib/schedule";
+import { conflictedBatchIds, findConflicts, layoutWeekBars, resourceById, type WeekBar } from "@/lib/schedule";
 import { useCollection } from "@/lib/storage";
 import {
   BATCH_STATUS,
@@ -124,26 +124,16 @@ export default function SchedulePage() {
   const todayIndex = weekDays.findIndex((d) => isSameDay(d, now));
 
   const activeBatches = useMemo(() => batches.filter((b) => b.status !== "cancelled"), [batches]);
+  const weekDaysIso = useMemo(() => weekDays.map(iso), [weekDays]);
 
-  /** Every active batch running on each day of the week — a multi-day batch
-   *  appears once per day it spans. */
-  const dayBatches = useMemo(
-    () =>
-      weekDays.map((day) => {
-        const dISO = iso(day);
-        return activeBatches
-          .filter((b) => b.startDate <= dISO && dISO <= b.endDate)
-          .sort((a, b) => a.batchNo.localeCompare(b.batchNo));
-      }),
-    [activeBatches, weekDays],
-  );
-
+  /** Batches touching this week at all, for each line — laid out as bars
+   *  (one per batch, spanning every day it covers) rather than repeated
+   *  per day. */
   const lineCalendars = CALENDAR_LINES.map((line) => ({
     ...line,
-    perDay: dayBatches.map((list) => list.filter((b) => b.lineId === line.id)),
+    bars: layoutWeekBars(activeBatches.filter((b) => b.lineId === line.id), weekDaysIso),
   }));
-  const otherPerDay = dayBatches.map((list) => list.filter((b) => !isParallelLineId(b.lineId)));
-  const otherCount = otherPerDay.reduce((n, list) => n + list.length, 0);
+  const otherBars = layoutWeekBars(activeBatches.filter((b) => !isParallelLineId(b.lineId)), weekDaysIso);
 
   /** Shifts a batch's whole date range by `deltaDays`, keeping its duration. */
   function rescheduleBatch(batchId: string, deltaDays: number) {
@@ -285,7 +275,7 @@ export default function SchedulePage() {
               color={line.color}
               bg={line.bg}
               weekDays={weekDays}
-              perDay={line.perDay}
+              bars={line.bars}
               todayIndex={todayIndex}
               conflicts={conflicts}
               canReschedule={canReschedule}
@@ -302,7 +292,7 @@ export default function SchedulePage() {
             />
           ))}
 
-          {otherCount > 0 ? (
+          {otherBars.length > 0 ? (
             <LineCalendar
               calendarId="other"
               title="Other lines"
@@ -310,7 +300,7 @@ export default function SchedulePage() {
               color="var(--muted-foreground)"
               bg="var(--surface-sunken)"
               weekDays={weekDays}
-              perDay={otherPerDay}
+              bars={otherBars}
               todayIndex={todayIndex}
               conflicts={conflicts}
               canReschedule={canReschedule}
@@ -428,7 +418,7 @@ function LineCalendar({
   color,
   bg,
   weekDays,
-  perDay,
+  bars,
   todayIndex,
   conflicts,
   canReschedule,
@@ -449,7 +439,9 @@ function LineCalendar({
   color: string;
   bg: string;
   weekDays: Date[];
-  perDay: Batch[][];
+  /** One entry per batch touching this week — a continuous bar, not a copy
+   *  per day it spans. See `layoutWeekBars`. */
+  bars: WeekBar[];
   todayIndex: number;
   conflicts: Set<string>;
   canReschedule: boolean;
@@ -464,7 +456,9 @@ function LineCalendar({
   onHover: (batch: Batch, rect: DOMRect | null) => void;
   onQuickCreate?: (day: Date) => void;
 }) {
-  const total = perDay.reduce((n, list) => n + list.length, 0);
+  // At least one lane always, so an all-idle week still gets a normal-height
+  // row rather than collapsing to just the day headers.
+  const laneCount = Math.max(1, ...bars.map((bar) => bar.lane + 1));
 
   return (
     <Card padded={false} className="overflow-hidden">
@@ -477,24 +471,40 @@ function LineCalendar({
         </span>
         <h3 className="text-sm font-extrabold tracking-tight text-foreground">{title}</h3>
         <span className="ml-auto text-[11px] font-semibold text-[var(--muted-foreground)]">
-          {total} batch{total === 1 ? "" : "es"} this week
+          {bars.length} batch{bars.length === 1 ? "" : "es"} this week
         </span>
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: `repeat(${WORKING_DAYS}, minmax(0, 1fr))` }}>
+      {/* One grid holds both the day columns (background, headers, idle/+
+          slots, drag targets) and the batch bars — each bar is placed with
+          an explicit column *span* across every day it covers and a row for
+          its lane, so a multi-day batch renders as one continuous bar
+          instead of a copy repeated in each day it touches. A day's
+          background is one item spanning every lane row, so it paints
+          underneath its bars with no seam. */}
+      <div
+        className="relative grid"
+        style={{
+          gridTemplateColumns: `repeat(${WORKING_DAYS}, minmax(0, 1fr))`,
+          gridTemplateRows: `auto repeat(${laneCount}, minmax(3rem, auto))`,
+          rowGap: "0.25rem",
+        }}
+      >
         {weekDays.map((day, dayIndex) => {
-          const dayBatches = perDay[dayIndex];
           const isToday = dayIndex === todayIndex;
           const isDropTarget =
             dragOverTarget?.calendarId === calendarId && dragOverTarget.dayIndex === dayIndex;
+          const dayIsCovered = bars.some((bar) => dayIndex >= bar.startIndex && dayIndex <= bar.endIndex);
           return (
             <div
               key={dayIndex}
               onDragOver={canReschedule ? (e) => onDragOverDay(e, calendarId, dayIndex) : undefined}
               onDragLeave={() => onDragLeaveDay(calendarId, dayIndex)}
               onDrop={canReschedule ? (e) => onDropDay(e, calendarId, dayIndex) : undefined}
-              className={`group relative flex min-h-[7rem] flex-col gap-1.5 border-r border-[var(--border)]
-                p-2 last:border-r-0 transition-colors duration-100 ${isDropTarget ? "bg-[var(--brand-50)]" : ""}`}
+              style={{ gridColumn: dayIndex + 1, gridRow: `1 / span ${1 + laneCount}` }}
+              className={`group flex flex-col gap-1.5 p-2 transition-colors duration-100 ${
+                dayIndex === WORKING_DAYS - 1 ? "" : "border-r border-[var(--border)]"
+              } ${isDropTarget ? "bg-[var(--brand-50)]" : ""}`}
             >
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-extrabold uppercase tracking-wide text-[var(--muted-foreground)]">
@@ -509,24 +519,7 @@ function LineCalendar({
                 </span>
               </div>
 
-              <div className="flex max-h-32 flex-1 flex-col gap-1 overflow-y-auto">
-                {dayBatches.map((batch) => (
-                  <EventPill
-                    key={batch.id}
-                    batch={batch}
-                    dayIndex={dayIndex}
-                    lineId={batch.lineId}
-                    clashing={conflicts.has(batch.id)}
-                    canReschedule={canReschedule}
-                    dragOriginRef={dragOriginRef}
-                    onDragEnd={onDragEnd}
-                    onSelect={onSelect}
-                    onHover={onHover}
-                  />
-                ))}
-              </div>
-
-              {dayBatches.length === 0 && canCreate && onQuickCreate ? (
+              {!dayIsCovered && canCreate && onQuickCreate ? (
                 <button
                   type="button"
                   aria-label={`Schedule a ${title} batch on ${format(day, "EEEE d MMMM")}`}
@@ -537,26 +530,50 @@ function LineCalendar({
                 >
                   <Plus size={14} weight="bold" />
                 </button>
-              ) : dayBatches.length === 0 ? (
+              ) : !dayIsCovered ? (
                 <div className="flex-1 rounded-md border border-dashed border-[var(--border)]" />
               ) : null}
             </div>
           );
         })}
+
+        {bars.map((bar) => (
+          <div
+            key={bar.batch.id}
+            style={{ gridColumn: `${bar.startIndex + 1} / ${bar.endIndex + 2}`, gridRow: bar.lane + 2 }}
+            className="p-0.5"
+          >
+            <EventBar
+              batch={bar.batch}
+              dayIndex={bar.startIndex}
+              lineId={bar.batch.lineId}
+              clashing={conflicts.has(bar.batch.id)}
+              clippedStart={bar.clippedStart}
+              clippedEnd={bar.clippedEnd}
+              canReschedule={canReschedule}
+              dragOriginRef={dragOriginRef}
+              onDragEnd={onDragEnd}
+              onSelect={onSelect}
+              onHover={onHover}
+            />
+          </div>
+        ))}
       </div>
     </Card>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/* Event pill — one batch's slot in a day cell                                */
+/* Event bar — one batch, spanning every day it covers this week              */
 /* -------------------------------------------------------------------------- */
 
-function EventPill({
+function EventBar({
   batch,
   dayIndex,
   lineId,
   clashing,
+  clippedStart,
+  clippedEnd,
   canReschedule,
   dragOriginRef,
   onDragEnd,
@@ -564,9 +581,17 @@ function EventPill({
   onHover,
 }: {
   batch: Batch;
+  /** The bar's visible start day within the week — used as the drag
+   *  origin, since the whole bar moves together regardless of where along
+   *  its length it's grabbed. */
   dayIndex: number;
   lineId: string | null;
   clashing: boolean;
+  /** The batch actually starts before/continues after this week — drawn
+   *  with a flat edge and a caret instead of a rounded end, so a bar that's
+   *  cut off by the week boundary doesn't look like it ends there. */
+  clippedStart: boolean;
+  clippedEnd: boolean;
   canReschedule: boolean;
   dragOriginRef: RefObject<DragOrigin | null>;
   onDragEnd: () => void;
@@ -583,6 +608,8 @@ function EventPill({
       onMouseLeave={() => onHover(batch, null)}
       aria-label={`${batch.product} — batch ${batch.batchNo}, ${meta.label}${
         clashing ? ", resource clash" : ""
+      }${clippedStart ? ", continues from before this week" : ""}${
+        clippedEnd ? ", continues after this week" : ""
       }`}
       draggable={canReschedule}
       onDragStart={(e) => {
@@ -594,16 +621,19 @@ function EventPill({
         dragOriginRef.current = null;
         onDragEnd();
       }}
-      className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-1 text-left
+      className={`flex h-full w-full min-w-0 items-center gap-1 px-2 text-left
         text-[11px] font-bold leading-tight transition-[filter,transform] duration-150
         hover:brightness-95 active:scale-[0.98]
+        ${clippedStart ? "rounded-l-none" : "rounded-l-md"} ${clippedEnd ? "rounded-r-none" : "rounded-r-md"}
         ${canReschedule ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}`}
       style={{ color: meta.colorVar, background: meta.bgVar }}
     >
+      {clippedStart ? <CaretLeft size={10} weight="bold" className="shrink-0 opacity-60" /> : null}
       {clashing ? (
         <Warning size={10} weight="fill" className="shrink-0 text-[var(--danger)]" />
       ) : null}
       <span className="truncate">{batch.product}</span>
+      {clippedEnd ? <CaretRight size={10} weight="bold" className="ml-auto shrink-0 opacity-60" /> : null}
     </button>
   );
 }
