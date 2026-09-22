@@ -481,12 +481,20 @@ function LineCalendar({
           its lane, so a multi-day batch renders as one continuous bar
           instead of a copy repeated in each day it touches. A day's
           background is one item spanning every lane row, so it paints
-          underneath its bars with no seam. */}
+          underneath its bars with no seam.
+
+          The header row's height is a fixed `minmax` floor, not `auto`:
+          every item that spans it (each day's background) spans several
+          rows, and CSS Grid explicitly excludes multi-row-spanning items
+          from an `auto` track's sizing — so with a bar under every single
+          day this week (nothing left to prop the row open on its own),
+          `auto` collapsed the header row to 0px and the bars, painted
+          after it, covered the date labels entirely. */}
       <div
         className="relative grid"
         style={{
           gridTemplateColumns: `repeat(${WORKING_DAYS}, minmax(0, 1fr))`,
-          gridTemplateRows: `auto repeat(${laneCount}, minmax(3rem, auto))`,
+          gridTemplateRows: `minmax(1.75rem, auto) repeat(${laneCount}, minmax(3rem, auto))`,
           rowGap: "0.25rem",
         }}
       >
