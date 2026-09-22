@@ -4,17 +4,22 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import Link from "next/link";
 import {
   DndContext,
+  DragOverlay,
   PointerSensor,
   TouchSensor,
+  defaultDropAnimationSideEffects,
   useDraggable,
   useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
+  type DropAnimation,
 } from "@dnd-kit/core";
 import {
   ArrowFatLeft,
   ArrowFatRight,
+  DotsThree,
   HandPalm,
   SpeakerHigh,
   SpeakerSlash,
@@ -34,6 +39,14 @@ import { roleCan, type StaffMember } from "@/lib/types";
 /** How long a press has to be held before the assign picker opens. Kept in
  *  step with the `hold-progress` animation in globals.css. */
 const HOLD_TO_ASSIGN_MS = 450;
+
+/** Settles the card into its new column instead of snapping, and fades the
+ *  lifted copy out as it lands. */
+const DROP_ANIMATION: DropAnimation = {
+  duration: 260,
+  easing: "cubic-bezier(0.18, 0.89, 0.32, 1.1)",
+  sideEffects: defaultDropAnimationSideEffects({ styles: { active: { opacity: "0.35" } } }),
+};
 
 /**
  * Board layout follows spec 3.3: Incoming/Returned (unclaimed) -> drag or
@@ -81,13 +94,32 @@ export default function MesPipelinePage() {
   const [audioUnlocked, setAudioUnlocked] = useState(() => isAudioUnlocked());
   const newBatchIds = useStageArrivalAlerts(queue, user?.id, soundEnabled && audioUnlocked);
 
-  const [pendingAction, setPendingAction] = useState<{ type: "send-back" | "fail"; batchId: string } | null>(null);
+  /** The stage a Forward hands to. Absent at the end of the line, where
+   *  forwarding completes the batch instead. */
+  const nextStage = useMemo(
+    () =>
+      currentStage
+        ? allBoardStages.find((s) => s.sequenceNumber === currentStage.sequenceNumber + 1)
+        : undefined,
+    [allBoardStages, currentStage],
+  );
+  // Nothing sits behind stage 2 but Batch Book entry, which has no queue to
+  // receive a return — the server refuses a send-back from there, so the
+  // board shouldn't offer one.
+  const canSendBackFromHere = (currentStage?.sequenceNumber ?? 0) >= 3;
+
+  const [pendingAction, setPendingAction] = useState<{ type: "send-back" | "fail"; batch: BatchRecord } | null>(null);
+  const [pendingMove, setPendingMove] = useState<{ action: "claim" | "forward"; batch: BatchRecord } | null>(null);
+  const [holdMenuBatch, setHoldMenuBatch] = useState<BatchRecord | null>(null);
+  const [draggingBatch, setDraggingBatch] = useState<BatchRecord | null>(null);
   const [assigningBatchId, setAssigningBatchId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 8 } }),
+    // Distance rather than delay, so holding still never starts a drag —
+    // that's what opens the card's action menu instead.
+    useSensor(TouchSensor, { activationConstraint: { distance: 8 } }),
   );
 
   /** Who this stage can hand a batch to: anyone pinned to this stage, plus
@@ -107,23 +139,43 @@ export default function MesPipelinePage() {
 
   if (!user) return null;
 
-  function handleDragEnd(event: DragEndEvent) {
-    const batchId = String(event.active.id);
-    const zone = event.over?.id;
-    if (!zone) return;
-    void handleAction(zone as string, batchId);
+  const allBatches = queue ? [...queue.incoming, ...queue.returned, ...queue.inProgress.map((e) => e.batch)] : [];
+  const batchById = (id: string) => allBatches.find((b) => b.id === id);
+  const isClaimedByMe = (batchId: string) =>
+    Boolean(queue?.inProgress.some((e) => e.batch.id === batchId && e.operatorId === user.id));
+  const isUnclaimed = (batchId: string) => Boolean(queue?.inProgress.every((e) => e.batch.id !== batchId));
+
+  /** Dropping on a column asks before acting, rather than moving the batch
+   *  the moment a finger lifts in roughly the right place. */
+  function handleDragStart(event: DragStartEvent) {
+    setDraggingBatch(batchById(String(event.active.id)) ?? null);
   }
 
-  async function handleAction(zone: string, batchId: string, operatorId?: string) {
+  function handleDragEnd(event: DragEndEvent) {
+    setDraggingBatch(null);
+    const batch = batchById(String(event.active.id));
+    const zone = event.over?.id;
+    if (!batch || !zone) return;
+    if (zone === "zone-claim" && isUnclaimed(batch.id)) setPendingMove({ action: "claim", batch });
+    else if (zone === "zone-forward" && isClaimedByMe(batch.id)) setPendingMove({ action: "forward", batch });
+  }
+
+  async function runAction(action: () => Promise<unknown>) {
     setActionError(null);
     try {
-      if (zone === "zone-claim") await claim(batchId, operatorId);
-      else if (zone === "zone-forward") await forward(batchId);
-      else if (zone === "zone-send-back") setPendingAction({ type: "send-back", batchId });
-      else if (zone === "zone-fail") setPendingAction({ type: "fail", batchId });
+      await action();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "That action failed.");
+      throw err;
     }
+  }
+
+  /** Send back and Fail both need the batch in the actor's hands first —
+   *  the server only lets the holder move a batch on. Claiming it as part
+   *  of the same action keeps "pick it up, reject it" a single step. */
+  async function withClaim(batchId: string, action: () => Promise<unknown>) {
+    if (!isClaimedByMe(batchId)) await claim(batchId);
+    await action();
   }
 
   // A station pinned to stage 1 has no board of its own — its work is the
@@ -249,33 +301,41 @@ export default function MesPipelinePage() {
               ))}
             </div>
           ) : queue ? (
-            <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+            <DndContext
+              sensors={sensors}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              onDragCancel={() => setDraggingBatch(null)}
+            >
               <div className="grid gap-3 md:grid-cols-3">
-                <QueueColumn title="Incoming" count={queue.incoming.length}>
-                  {queue.incoming.map((batch) => (
-                    <DraggableBatchCard key={batch.id} batch={batch} isNew={newBatchIds.has(batch.id)}>
+                {/* Waiting to be picked up — fresh arrivals and anything the
+                    next stage sent back, which are the same job from here. */}
+                <BoardColumn title="Incoming" count={queue.incoming.length + queue.returned.length}>
+                  {[...queue.incoming, ...queue.returned].map((batch) => (
+                    <DraggableBatchCard
+                      key={batch.id}
+                      batch={batch}
+                      returned={queue.returned.some((b) => b.id === batch.id)}
+                      isNew={newBatchIds.has(batch.id)}
+                      onHold={can("mes.claim") ? () => setHoldMenuBatch(batch) : undefined}
+                    >
                       {can("mes.claim") ? (
-                        <ClaimControls
-                          onClaim={() => handleAction("zone-claim", batch.id)}
-                          onAssign={() => setAssigningBatchId(batch.id)}
-                        />
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Button variant="secondary" onClick={() => void runAction(() => claim(batch.id))}>
+                            Claim
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            aria-label="More actions for this batch"
+                            onClick={() => setHoldMenuBatch(batch)}
+                          >
+                            <DotsThree size={20} weight="bold" />
+                          </Button>
+                        </div>
                       ) : null}
                     </DraggableBatchCard>
                   ))}
-                </QueueColumn>
-
-                <QueueColumn title="Returned" count={queue.returned.length}>
-                  {queue.returned.map((batch) => (
-                    <DraggableBatchCard key={batch.id} batch={batch} returned isNew={newBatchIds.has(batch.id)}>
-                      {can("mes.claim") ? (
-                        <ClaimControls
-                          onClaim={() => handleAction("zone-claim", batch.id)}
-                          onAssign={() => setAssigningBatchId(batch.id)}
-                        />
-                      ) : null}
-                    </DraggableBatchCard>
-                  ))}
-                </QueueColumn>
+                </BoardColumn>
 
                 <DroppableColumn id="zone-claim" title="In progress" count={queue.inProgress.length}>
                   {queue.inProgress.map((entry) => (
@@ -283,31 +343,86 @@ export default function MesPipelinePage() {
                       key={entry.batch.id}
                       entry={entry}
                       isMine={entry.operatorId === user.id}
-                      canFail={Boolean(currentStage?.failAuthority)}
-                      onForward={() => handleAction("zone-forward", entry.batch.id)}
-                      onSendBack={() => handleAction("zone-send-back", entry.batch.id)}
-                      onFail={() => handleAction("zone-fail", entry.batch.id)}
+                      onHold={() => setHoldMenuBatch(entry.batch)}
                     />
                   ))}
                 </DroppableColumn>
+
+                {/* The forward destination, as a column you drag into. */}
+                <DroppableColumn
+                  id="zone-forward"
+                  title={nextStage ? `Send to ${nextStage.name}` : "Complete batch"}
+                  subtitle={nextStage ? `Stage ${nextStage.sequenceNumber}` : "Leaves the pipeline"}
+                  count={0}
+                  hint={
+                    nextStage
+                      ? "Drag a batch you're holding here to pass it on."
+                      : "Drag a batch you're holding here to finish it."
+                  }
+                />
               </div>
 
-              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                <DropStrip id="zone-forward" label="Forward" icon={<ArrowFatRight size={20} weight="bold" />} />
-                <DropStrip id="zone-send-back" label="Send back" icon={<ArrowFatLeft size={20} weight="bold" />} />
-                {currentStage?.failAuthority ? (
-                  <DropStrip id="zone-fail" label="Fail" icon={<XCircle size={20} weight="bold" />} danger />
-                ) : null}
-              </div>
               <p className="mt-2 text-xs text-[var(--muted-foreground)]">
-                Drag a claimed batch onto one of the strips above, or use the buttons on its card. Hold
-                <strong className="text-foreground"> Claim </strong>
-                on a waiting batch to hand it to a named operator.
+                Drag a batch to the next column to move it on — you&apos;ll be asked to confirm. Press and hold a batch
+                for more actions.
               </p>
+
+              {/* The card travels as a floating copy rather than the one in
+                  the column, so it stays above every other card and settles
+                  into place on release. */}
+              <DragOverlay dropAnimation={DROP_ANIMATION}>
+                {draggingBatch ? (
+                  <Card className="w-full rotate-2 scale-[1.03] cursor-grabbing border-[var(--primary)] shadow-[var(--shadow-overlay)]">
+                    <BatchCardBody batch={draggingBatch} />
+                  </Card>
+                ) : null}
+              </DragOverlay>
             </DndContext>
           ) : null}
         </>
       )}
+
+      {pendingMove ? (
+        <ConfirmMoveModal
+          action={pendingMove.action}
+          batch={pendingMove.batch}
+          nextStageName={nextStage?.name}
+          onCancel={() => setPendingMove(null)}
+          onConfirm={async () => {
+            const { action, batch } = pendingMove;
+            await runAction(() => (action === "claim" ? claim(batch.id) : forward(batch.id)));
+            setPendingMove(null);
+          }}
+        />
+      ) : null}
+
+      {holdMenuBatch ? (
+        <BatchActionsModal
+          batch={holdMenuBatch}
+          heldByMe={isClaimedByMe(holdMenuBatch.id)}
+          canSendBack={canSendBackFromHere}
+          canFail={Boolean(currentStage?.failAuthority)}
+          stageNumber={currentStage?.sequenceNumber ?? 0}
+          onClose={() => setHoldMenuBatch(null)}
+          onAssign={() => {
+            setAssigningBatchId(holdMenuBatch.id);
+            setHoldMenuBatch(null);
+          }}
+          onClaim={async () => {
+            const batch = holdMenuBatch;
+            setHoldMenuBatch(null);
+            await runAction(() => claim(batch.id));
+          }}
+          onSendBack={() => {
+            setPendingAction({ type: "send-back", batch: holdMenuBatch });
+            setHoldMenuBatch(null);
+          }}
+          onFail={() => {
+            setPendingAction({ type: "fail", batch: holdMenuBatch });
+            setHoldMenuBatch(null);
+          }}
+        />
+      ) : null}
 
       {assigningBatchId ? (
         <AssignOperatorModal
@@ -317,7 +432,7 @@ export default function MesPipelinePage() {
           onPick={async (operatorId) => {
             const batchId = assigningBatchId;
             setAssigningBatchId(null);
-            await handleAction("zone-claim", batchId, operatorId);
+            await runAction(() => claim(batchId, operatorId));
           }}
         />
       ) : null}
@@ -328,19 +443,16 @@ export default function MesPipelinePage() {
           description={
             pendingAction.type === "fail"
               ? "This ends the batch's journey through the pipeline. A fresh batch number would be needed to make it again."
-              : "This returns the batch to the previous stage's Returned queue for rework."
+              : "This returns the batch to the previous stage for rework. Say what needs correcting — whoever picks it up sees this."
           }
+          batchLabel={`${pendingAction.batch.batchNumber ?? pendingAction.batch.batchType} · ${pendingAction.batch.productName ?? "Unnamed product"}`}
           onCancel={() => setPendingAction(null)}
           onSubmit={async (notes) => {
-            setActionError(null);
-            try {
-              if (pendingAction.type === "fail") await fail(pendingAction.batchId, notes);
-              else await sendBack(pendingAction.batchId, notes);
-              setPendingAction(null);
-            } catch (err) {
-              setActionError(err instanceof Error ? err.message : "That action failed.");
-              setPendingAction(null);
-            }
+            const { type, batch } = pendingAction;
+            await runAction(() =>
+              withClaim(batch.id, () => (type === "fail" ? fail(batch.id, notes) : sendBack(batch.id, notes))),
+            );
+            setPendingAction(null);
           }}
         />
       ) : null}
@@ -349,72 +461,247 @@ export default function MesPipelinePage() {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Claim / hold-to-assign                                                     */
+/* Press and hold                                                             */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Tap to take the batch yourself; press and hold to hand it to someone else.
- *
- * Pointer events are stopped from bubbling so dnd-kit's TouchSensor (which
- * starts a drag after 150ms of holding) never competes with the hold —
- * without that, no hold on a tablet could ever reach the assign threshold.
- * The separate Assign button does the same thing for anyone on a keyboard,
- * where a press-and-hold isn't an available gesture.
+ * Opens a batch's action menu on a press and hold, without blocking the
+ * drag: dnd-kit starts dragging once the pointer travels, so a hold that
+ * stays put belongs to us and any real movement cancels it. Events are left
+ * to bubble so both behaviours see them.
  */
-function ClaimControls({ onClaim, onAssign }: { onClaim: () => void; onAssign: () => void }) {
+function useHold(onHold: (() => void) | undefined) {
   const [holding, setHolding] = useState(false);
   const timer = useRef<number | null>(null);
-  const firedRef = useRef(false);
+  const origin = useRef<{ x: number; y: number } | null>(null);
 
-  const clearTimer = useCallback(() => {
+  const cancel = useCallback(() => {
     if (timer.current !== null) {
       window.clearTimeout(timer.current);
       timer.current = null;
     }
+    origin.current = null;
     setHolding(false);
   }, []);
 
-  useEffect(() => clearTimer, [clearTimer]);
+  useEffect(() => cancel, [cancel]);
 
-  function handlePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
-    event.stopPropagation();
-    firedRef.current = false;
-    setHolding(true);
-    timer.current = window.setTimeout(() => {
-      firedRef.current = true;
-      clearTimer();
-      onAssign();
-    }, HOLD_TO_ASSIGN_MS);
-  }
+  if (!onHold) return { holding: false, handlers: {} };
 
-  function handlePointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
-    event.stopPropagation();
-    clearTimer();
-    // The hold already opened the picker — don't also claim it for myself.
-    if (!firedRef.current) onClaim();
-  }
+  return {
+    holding,
+    handlers: {
+      onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+        origin.current = { x: event.clientX, y: event.clientY };
+        setHolding(true);
+        timer.current = window.setTimeout(() => {
+          cancel();
+          onHold();
+        }, HOLD_TO_ASSIGN_MS);
+      },
+      onPointerMove: (event: ReactPointerEvent<HTMLElement>) => {
+        const start = origin.current;
+        if (!start) return;
+        if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 8) cancel();
+      },
+      onPointerUp: cancel,
+      onPointerLeave: cancel,
+      onPointerCancel: cancel,
+    },
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Dialogs                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/** Asked for on every drag, so a batch never moves on a mis-drop. */
+function ConfirmMoveModal({
+  action,
+  batch,
+  nextStageName,
+  onCancel,
+  onConfirm,
+}: {
+  action: "claim" | "forward";
+  batch: BatchRecord;
+  nextStageName?: string;
+  onCancel: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const claiming = action === "claim";
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <Button
-        variant="secondary"
-        className={`relative overflow-hidden ${holding ? "hold-progress text-[var(--brand-600)]" : ""}`}
-        onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
-        onPointerLeave={clearTimer}
-        onPointerCancel={clearTimer}
+    <Modal
+      open
+      onClose={onCancel}
+      title={claiming ? "Start this batch?" : nextStageName ? `Send to ${nextStageName}?` : "Complete this batch?"}
+      description={`${batch.batchNumber ?? batch.batchType} · ${batch.productName ?? "Unnamed product"}`}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onCancel} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            disabled={submitting}
+            onClick={async () => {
+              setSubmitting(true);
+              setError(null);
+              try {
+                await onConfirm();
+              } catch (err) {
+                // Shown here rather than only on the board behind, which the
+                // dialog covers.
+                setError(err instanceof Error ? err.message : "That action failed.");
+                setSubmitting(false);
+              }
+            }}
+          >
+            {submitting ? "Working…" : claiming ? "Start batch" : "Confirm"}
+          </Button>
+        </>
+      }
+    >
+      {error ? (
+        <div className="mb-3">
+          <PermissionNotice message={error} />
+        </div>
+      ) : null}
+      <p className="text-sm text-foreground">
+        {claiming
+          ? "It moves into In progress, held by you. Nobody else can move it on while you have it."
+          : nextStageName
+            ? `It leaves this station and joins ${nextStageName}'s Incoming queue. The move is timestamped against your name.`
+            : "It finishes the pipeline and is marked complete."}
+      </p>
+    </Modal>
+  );
+}
+
+/** The press-and-hold menu: everything that can be done to one batch. */
+function BatchActionsModal({
+  batch,
+  heldByMe,
+  canSendBack,
+  canFail,
+  stageNumber,
+  onClose,
+  onAssign,
+  onClaim,
+  onSendBack,
+  onFail,
+}: {
+  batch: BatchRecord;
+  heldByMe: boolean;
+  canSendBack: boolean;
+  canFail: boolean;
+  stageNumber: number;
+  onClose: () => void;
+  onAssign: () => void;
+  onClaim: () => void;
+  onSendBack: () => void;
+  onFail: () => void;
+}) {
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={batch.batchNumber ?? `Type ${batch.batchType} batch`}
+      description={batch.productName ?? "Unnamed product"}
+      footer={
+        <Button variant="secondary" onClick={onClose}>
+          Close
+        </Button>
+      }
+    >
+      <div className="grid gap-2">
+        {!heldByMe ? (
+          <>
+            <ActionRow
+              icon={<HandPalm size={20} weight="bold" />}
+              title="Claim it myself"
+              detail="Moves into In progress, held by you."
+              onClick={onClaim}
+            />
+            <ActionRow
+              icon={<UserPlus size={20} weight="bold" />}
+              title="Assign to an operator"
+              detail="Hand it to a named person — only they can move it on."
+              onClick={onAssign}
+            />
+          </>
+        ) : null}
+
+        {canSendBack ? (
+          <ActionRow
+            icon={<ArrowFatLeft size={20} weight="bold" />}
+            title="Send back"
+            detail="Returns it to the previous stage. You'll be asked why."
+            onClick={onSendBack}
+          />
+        ) : (
+          <PermissionNotice
+            message={`Nothing sits behind stage ${stageNumber} but Batch Book entry, so a batch can't be sent back from here. Correct the record in Batch Book instead.`}
+          />
+        )}
+
+        {canFail ? (
+          <ActionRow
+            icon={<XCircle size={20} weight="bold" />}
+            title="Fail this batch"
+            detail="Ends its journey for good. You'll be asked why."
+            danger
+            onClick={onFail}
+          />
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+function ActionRow({
+  icon,
+  title,
+  detail,
+  danger,
+  onClick,
+}: {
+  icon: ReactNode;
+  title: string;
+  detail: string;
+  danger?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="card-interactive flex min-h-16 w-full cursor-pointer items-center gap-3 rounded-lg
+        border border-[var(--border)] bg-[var(--surface)] p-3 text-left"
+    >
+      <span
+        className="grid h-10 w-10 shrink-0 place-items-center rounded-full"
+        style={
+          danger
+            ? { background: "var(--danger-bg)", color: "var(--danger)" }
+            : { background: "var(--brand-gradient)", color: "#fff" }
+        }
       >
-        Claim
-      </Button>
-      <Button
-        variant="ghost"
-        aria-label="Assign this batch to an operator"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={onAssign}
-      >
-        <UserPlus size={17} weight="bold" />
-      </Button>
-    </div>
+        {icon}
+      </span>
+      <span className="min-w-0">
+        <span
+          className="block text-sm font-bold"
+          style={danger ? { color: "var(--danger)" } : { color: "var(--foreground)" }}
+        >
+          {title}
+        </span>
+        <span className="block text-xs text-[var(--muted-foreground)]">{detail}</span>
+      </span>
+    </button>
   );
 }
 
@@ -468,12 +755,22 @@ function AssignOperatorModal({
 
 /* -------------------------------------------------------------------------- */
 
-function QueueColumn({ title, count, children }: { title: string; count: number; children: ReactNode }) {
+function ColumnHeading({ title, subtitle, count }: { title: string; subtitle?: string; count?: number }) {
+  return (
+    <div className="mb-2 px-1">
+      <p className="text-xs font-bold uppercase tracking-wide text-[var(--muted-foreground)]">
+        {title}
+        {count === undefined ? null : ` · ${count}`}
+      </p>
+      {subtitle ? <p className="text-[11px] text-[var(--subtle-foreground)]">{subtitle}</p> : null}
+    </div>
+  );
+}
+
+function BoardColumn({ title, count, children }: { title: string; count: number; children: ReactNode }) {
   return (
     <div>
-      <p className="mb-2 px-1 text-xs font-bold uppercase tracking-wide text-[var(--muted-foreground)]">
-        {title} · {count}
-      </p>
+      <ColumnHeading title={title} count={count} />
       <div className="grid gap-2">{count === 0 ? <EmptyColumnNote /> : children}</div>
     </div>
   );
@@ -482,27 +779,46 @@ function QueueColumn({ title, count, children }: { title: string; count: number;
 function DroppableColumn({
   id,
   title,
+  subtitle,
   count,
+  hint,
   children,
 }: {
   id: string;
   title: string;
+  subtitle?: string;
   count: number;
-  children: ReactNode;
+  /** Shown instead of cards for a column that only receives drops. */
+  hint?: string;
+  children?: ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
     <div>
-      <p className="mb-2 px-1 text-xs font-bold uppercase tracking-wide text-[var(--muted-foreground)]">
-        {title} · {count}
-      </p>
+      <ColumnHeading title={title} subtitle={subtitle} count={hint ? undefined : count} />
       <div
         ref={setNodeRef}
-        className={`grid gap-2 rounded-lg p-1 transition-colors duration-150 ${
-          isOver ? "bg-[var(--brand-50)]" : ""
+        className={`grid gap-2 rounded-lg p-1 transition-[background-color,outline-color,box-shadow] duration-200 ${
+          isOver
+            ? "bg-[var(--brand-50)] outline-2 outline-dashed outline-[var(--brand-500)] shadow-[var(--shadow-glow)]"
+            : "outline-2 outline-dashed outline-transparent"
         }`}
       >
-        {count === 0 ? <EmptyColumnNote /> : children}
+        {hint ? (
+          <div
+            className={`flex min-h-40 flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed
+              px-4 py-8 text-center transition-[border-color,transform] duration-200 ${
+                isOver ? "scale-[1.02] border-[var(--brand-500)]" : "border-[var(--border-strong)]"
+              }`}
+          >
+            <ArrowFatRight size={26} weight="bold" className="text-[var(--muted-foreground)]" />
+            <p className="max-w-[16rem] text-xs text-[var(--muted-foreground)]">{hint}</p>
+          </div>
+        ) : count === 0 ? (
+          <EmptyColumnNote />
+        ) : (
+          children
+        )}
       </div>
     </div>
   );
@@ -520,28 +836,37 @@ function DraggableBatchCard({
   batch,
   returned,
   isNew,
+  onHold,
   children,
 }: {
   batch: BatchRecord;
   returned?: boolean;
   isNew?: boolean;
+  onHold?: () => void;
   children?: ReactNode;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: batch.id });
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: batch.id });
+  const { holding, handlers } = useHold(onHold);
   return (
     <Card
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className={`cursor-grab touch-none select-none active:cursor-grabbing ${isDragging ? "opacity-50" : ""} ${
+      className={`cursor-grab touch-none select-none transition-[transform,opacity,border-color] duration-150 active:cursor-grabbing ${
+        // Left behind as a placeholder while the overlay copy is dragged.
+        isDragging ? "opacity-40 border-dashed" : ""
+      } ${holding ? "scale-[0.98] border-[var(--primary)]" : ""} ${
         isNew ? "border-[var(--brand-600)] ring-2 ring-[var(--brand-200)]" : ""
       }`}
-      style={transform ? { transform: `translate(${transform.x}px, ${transform.y}px)`, zIndex: 10, position: "relative" } : undefined}
     >
-      <BatchCardBody batch={batch} newBadge={isNew} />
-      {returned ? (
-        <p className="mt-1.5 text-[11px] font-semibold text-[var(--status-qa)]">Sent back for rework</p>
-      ) : null}
+      {/* The hold lives on an inner element so its pointer events still
+          bubble to dnd-kit's listeners on the card. */}
+      <div {...handlers}>
+        <BatchCardBody batch={batch} newBadge={isNew} />
+        {returned ? (
+          <p className="mt-1.5 text-[11px] font-semibold text-[var(--status-qa)]">Sent back for rework</p>
+        ) : null}
+      </div>
       {children ? <div className="mt-2.5">{children}</div> : null}
     </Card>
   );
@@ -550,51 +875,39 @@ function DraggableBatchCard({
 function InProgressCard({
   entry,
   isMine,
-  canFail,
-  onForward,
-  onSendBack,
-  onFail,
+  onHold,
 }: {
   entry: InProgressEntry;
   isMine: boolean;
-  canFail: boolean;
-  onForward: () => void;
-  onSendBack: () => void;
-  onFail: () => void;
+  onHold: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: entry.batch.id,
     disabled: !isMine,
   });
+  const { holding, handlers } = useHold(isMine ? onHold : undefined);
   return (
     <Card
       ref={setNodeRef}
       {...(isMine ? listeners : {})}
       {...(isMine ? attributes : {})}
-      className={`${isMine ? "cursor-grab touch-none active:cursor-grabbing" : ""} ${isDragging ? "opacity-50" : ""}`}
-      style={transform ? { transform: `translate(${transform.x}px, ${transform.y}px)`, zIndex: 10, position: "relative" } : undefined}
+      className={`transition-[transform,opacity,border-color] duration-150 ${
+        isMine ? "cursor-grab touch-none active:cursor-grabbing" : ""
+      } ${isDragging ? "opacity-40 border-dashed" : ""} ${holding ? "scale-[0.98] border-[var(--primary)]" : ""}`}
     >
-      <BatchCardBody batch={entry.batch} />
-      <p className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-[var(--muted-foreground)]">
-        <HandPalm size={12} weight="bold" />
-        {isMine ? "Held by you" : `Held by ${entry.operatorName}`}
-      </p>
+      <div {...handlers}>
+        <BatchCardBody batch={entry.batch} />
+        <p className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-[var(--muted-foreground)]">
+          <HandPalm size={12} weight="bold" />
+          {isMine ? "Held by you" : `Held by ${entry.operatorName}`}
+        </p>
+      </div>
       {isMine ? (
         <div className="mt-2.5 flex flex-wrap gap-1.5">
-          <Button variant="primary" onClick={onForward}>
-            <ArrowFatRight size={15} weight="bold" />
-            Forward
+          <Button variant="ghost" onClick={onHold}>
+            <DotsThree size={20} weight="bold" />
+            Actions
           </Button>
-          <Button variant="secondary" onClick={onSendBack}>
-            <ArrowFatLeft size={15} weight="bold" />
-            Send back
-          </Button>
-          {canFail ? (
-            <Button variant="danger" onClick={onFail}>
-              <XCircle size={15} weight="bold" />
-              Fail
-            </Button>
-          ) : null}
         </div>
       ) : (
         <div className="mt-2">
@@ -630,43 +943,16 @@ function BatchCardBody({ batch, newBadge }: { batch: BatchRecord; newBadge?: boo
   );
 }
 
-function DropStrip({
-  id,
-  label,
-  icon,
-  danger,
-}: {
-  id: string;
-  label: string;
-  icon: ReactNode;
-  danger?: boolean;
-}) {
-  const { setNodeRef, isOver } = useDroppable({ id });
-  return (
-    <div
-      ref={setNodeRef}
-      className={`flex min-h-20 items-center justify-center gap-2 rounded-lg border-2 border-dashed px-3 py-5 text-sm font-bold transition-colors duration-150 ${
-        isOver
-          ? danger
-            ? "border-[var(--danger)] bg-[var(--danger-bg)] text-[var(--danger)]"
-            : "border-[var(--brand-600)] bg-[var(--brand-50)] text-[var(--brand-700)]"
-          : "border-[var(--border-strong)] text-[var(--muted-foreground)]"
-      }`}
-    >
-      {icon}
-      {label}
-    </div>
-  );
-}
-
 function ReasonModal({
   title,
   description,
+  batchLabel,
   onCancel,
   onSubmit,
 }: {
   title: string;
   description: string;
+  batchLabel?: string;
   onCancel: () => void;
   onSubmit: (notes: string) => Promise<void>;
 }) {
@@ -706,8 +992,20 @@ function ReasonModal({
     >
       <div className="grid gap-3.5">
         {error ? <PermissionNotice message={error} /> : null}
-        <Field label="Reason" htmlFor="reason-notes" required>
-          <Textarea id="reason-notes" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        {batchLabel ? <p className="text-sm font-semibold text-foreground">{batchLabel}</p> : null}
+        <Field
+          label="Reason"
+          htmlFor="reason-notes"
+          required
+          helper="Recorded against the batch — the next person to pick it up sees this."
+        >
+          <Textarea
+            id="reason-notes"
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="What needs correcting?"
+          />
         </Field>
       </div>
     </Modal>
