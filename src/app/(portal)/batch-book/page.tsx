@@ -29,13 +29,12 @@ import {
   type BatchType,
 } from "@/lib/batchBook";
 
-const STATUS_FILTERS: Array<{ value: "all" | BatchBookStatus; label: string }> = [
-  { value: "all", label: "All" },
-  { value: "DRAFT", label: "Draft" },
-  { value: "CONFIRMED", label: "Confirmed" },
-  { value: "COMPLETED", label: "Completed" },
-  { value: "FAILED", label: "Failed" },
-];
+/** Each batch type keeps its own numbering sequence (spec 2.3), so each one
+ *  gets its own log rather than being mixed into a single list. */
+const TYPE_OPTIONS = (Object.keys(BATCH_TYPE_LABELS) as BatchType[]).map((value) => ({
+  value,
+  label: BATCH_TYPE_LABELS[value],
+}));
 
 /** Colour is always paired with the status label — no colour-only meaning. */
 const STATUS_TONE: Record<BatchBookStatus, { color: string; background: string }> = {
@@ -49,16 +48,18 @@ const STATUS_TONE: Record<BatchBookStatus, { color: string; background: string }
 
 export default function BatchBookPage() {
   const { user, can } = useAuth();
-  const [statusFilter, setStatusFilter] = useState<"all" | BatchBookStatus>("all");
-  const { batches, ready, error, createDraft, editBatch, confirmBatch } = useBatchBook(
-    statusFilter === "all" ? undefined : statusFilter,
-  );
+  const [batchType, setBatchType] = useState<BatchType>("A");
+  const { batches, ready, error, createDraft, editBatch, confirmBatch } = useBatchBook();
   const { departments } = useDepartments();
   const departmentById = useMemo(() => new Map(departments.map((d) => [d.id, d.name])), [departments]);
 
+  const visibleBatches = useMemo(
+    () => batches?.filter((b) => b.batchType === batchType) ?? null,
+    [batches, batchType],
+  );
+
   const [creating, setCreating] = useState(false);
   const [editingBatch, setEditingBatch] = useState<BatchRecord | null>(null);
-  const [confirmingBatch, setConfirmingBatch] = useState<BatchRecord | null>(null);
 
   if (!user) return null;
 
@@ -66,11 +67,11 @@ export default function BatchBookPage() {
     <>
       <PageHeader
         title="Batch Book"
-        description="Every batch is logged here first and given a permanent, sequential number once confirmed."
+        description="Each batch type keeps its own log and its own numbering. A batch is confirmed as it's entered, which assigns its permanent number."
         actions={
           can("batchbook.create") ? (
             <Button variant="primary" icon={<Plus size={16} weight="bold" />} onClick={() => setCreating(true)}>
-              New draft
+              New batch
             </Button>
           ) : null
         }
@@ -78,10 +79,10 @@ export default function BatchBookPage() {
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <FilterSelect
-          label="Status"
-          value={statusFilter}
-          onChange={(v) => setStatusFilter(v as "all" | BatchBookStatus)}
-          options={STATUS_FILTERS}
+          label="Batch type"
+          value={batchType}
+          onChange={(v) => setBatchType(v as BatchType)}
+          options={TYPE_OPTIONS}
         />
       </div>
 
@@ -97,14 +98,14 @@ export default function BatchBookPage() {
             <Skeleton key={i} className="h-14 w-full" />
           ))}
         </div>
-      ) : batches && batches.length === 0 ? (
+      ) : visibleBatches && visibleBatches.length === 0 ? (
         <EmptyState
-          title="No batches yet"
-          description="Start a draft to log the first batch — it gets a permanent number once you confirm it."
+          title={`No ${BATCH_TYPE_LABELS[batchType]} batches yet`}
+          description="Entering a batch confirms it and assigns the next number in this type's sequence."
           action={
             can("batchbook.create") ? (
               <Button variant="primary" onClick={() => setCreating(true)}>
-                New draft
+                New batch
               </Button>
             ) : undefined
           }
@@ -116,7 +117,6 @@ export default function BatchBookPage() {
               <thead>
                 <tr className="border-b border-[var(--border)] text-left text-xs font-bold uppercase tracking-wide text-[var(--muted-foreground)]">
                   <th className="px-4 py-2.5">Batch number</th>
-                  <th className="px-4 py-2.5">Type</th>
                   <th className="px-4 py-2.5">Product</th>
                   <th className="px-4 py-2.5">Department</th>
                   <th className="px-4 py-2.5">Status</th>
@@ -124,10 +124,9 @@ export default function BatchBookPage() {
                 </tr>
               </thead>
               <tbody>
-                {batches?.map((batch) => {
+                {visibleBatches?.map((batch) => {
                   const isOwnDraft = batch.status === "DRAFT" && batch.createdBy === user.id;
                   const canEditDraft = batch.status === "DRAFT" && can("batchbook.editOwnDraft") && (isOwnDraft || user.role === "admin");
-                  const canConfirm = batch.status === "DRAFT" && can("batchbook.confirm") && (isOwnDraft || user.role === "admin");
                   const canEditConfirmed = batch.status !== "DRAFT" && can("batchbook.editConfirmed");
 
                   return (
@@ -135,7 +134,6 @@ export default function BatchBookPage() {
                       <td className="px-4 py-2.5 font-mono text-[13px] font-semibold">
                         {batch.batchNumber ?? <span className="text-[var(--muted-foreground)]">Not yet assigned</span>}
                       </td>
-                      <td className="px-4 py-2.5">{batch.batchType}</td>
                       <td className="px-4 py-2.5">{batch.productName ?? "—"}</td>
                       <td className="px-4 py-2.5">{departmentById.get(batch.departmentId) ?? "—"}</td>
                       <td className="px-4 py-2.5">
@@ -153,12 +151,6 @@ export default function BatchBookPage() {
                               Edit
                             </Button>
                           ) : null}
-                          {canConfirm ? (
-                            <Button size="sm" variant="primary" onClick={() => setConfirmingBatch(batch)}>
-                              <CheckCircle size={14} weight="bold" />
-                              Confirm
-                            </Button>
-                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -171,23 +163,16 @@ export default function BatchBookPage() {
       )}
 
       {creating ? (
-        <CreateDraftModal
+        <CreateBatchModal
           open={creating}
+          defaultBatchType={batchType}
           onClose={() => setCreating(false)}
-          onCreate={async (input) => {
-            await createDraft(input);
+          onSubmit={async (input, confirmNow) => {
+            const batch = await createDraft(input);
+            if (confirmNow) await confirmBatch(batch.id);
+            // Land on the log the batch was actually filed under.
+            setBatchType(input.batchType);
             setCreating(false);
-          }}
-        />
-      ) : null}
-
-      {confirmingBatch ? (
-        <ConfirmBatchModal
-          batch={confirmingBatch}
-          onClose={() => setConfirmingBatch(null)}
-          onConfirm={async () => {
-            await confirmBatch(confirmingBatch.id);
-            setConfirmingBatch(null);
           }}
         />
       ) : null}
@@ -200,6 +185,18 @@ export default function BatchBookPage() {
             await editBatch(editingBatch.id, patch, reason);
             setEditingBatch(null);
           }}
+          onConfirm={
+            editingBatch.status === "DRAFT" && can("batchbook.confirm")
+              ? async (patch) => {
+                  // Save any edits made in this form before the number is
+                  // assigned — a confirmed record can't be edited without a
+                  // logged reason.
+                  await editBatch(editingBatch.id, patch);
+                  await confirmBatch(editingBatch.id);
+                  setEditingBatch(null);
+                }
+              : undefined
+          }
         />
       ) : null}
     </>
@@ -208,24 +205,35 @@ export default function BatchBookPage() {
 
 /* -------------------------------------------------------------------------- */
 
-function CreateDraftModal({
+/**
+ * Entering a batch and confirming it are one step: confirming is what
+ * assigns the permanent number, so it belongs with the data being entered
+ * rather than as an action against a row in the log. "Save as draft" is
+ * still there for an entry that isn't ready to be numbered yet.
+ */
+function CreateBatchModal({
   open,
+  defaultBatchType,
   onClose,
-  onCreate,
+  onSubmit,
 }: {
   open: boolean;
+  defaultBatchType: BatchType;
   onClose: () => void;
-  onCreate: (input: {
-    batchType: BatchType;
-    departmentId: string;
-    productName?: string;
-    quantity?: string;
-    unit?: string;
-    plannedManufactureDate?: string;
-  }) => Promise<void>;
+  onSubmit: (
+    input: {
+      batchType: BatchType;
+      departmentId: string;
+      productName?: string;
+      quantity?: string;
+      unit?: string;
+      plannedManufactureDate?: string;
+    },
+    confirmNow: boolean,
+  ) => Promise<void>;
 }) {
   const { departments, ready, error: departmentsError } = useDepartments();
-  const [batchType, setBatchType] = useState<BatchType>("A");
+  const [batchType, setBatchType] = useState<BatchType>(defaultBatchType);
   const [departmentId, setDepartmentId] = useState("");
   const [productName, setProductName] = useState("");
   const [quantity, setQuantity] = useState("");
@@ -237,40 +245,49 @@ function CreateDraftModal({
 
   const selectedDepartment = departmentId || departments[0]?.id || "";
 
+  async function submit(confirmNow: boolean) {
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      await onSubmit(
+        {
+          batchType,
+          departmentId: selectedDepartment,
+          productName: productName || undefined,
+          quantity: quantity || undefined,
+          unit: unit || undefined,
+          plannedManufactureDate: plannedDate || undefined,
+        },
+        confirmNow,
+      );
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Failed to save this batch.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="New Batch Book draft"
-      description="Drafts aren't numbered yet and aren't visible outside your own view until confirmed."
+      title="New batch"
+      description="Confirming assigns the next number in this type's sequence and can't be undone."
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose} disabled={submitting}>
             Cancel
+          </Button>
+          <Button variant="secondary" disabled={!selectedDepartment || submitting} onClick={() => void submit(false)}>
+            Save as draft
           </Button>
           <Button
             variant="primary"
+            icon={<CheckCircle size={15} weight="bold" />}
             disabled={!selectedDepartment || submitting}
-            onClick={async () => {
-              setSubmitting(true);
-              setSubmitError(null);
-              try {
-                await onCreate({
-                  batchType,
-                  departmentId: selectedDepartment,
-                  productName: productName || undefined,
-                  quantity: quantity || undefined,
-                  unit: unit || undefined,
-                  plannedManufactureDate: plannedDate || undefined,
-                });
-              } catch (err) {
-                setSubmitError(err instanceof Error ? err.message : "Failed to create draft.");
-              } finally {
-                setSubmitting(false);
-              }
-            }}
+            onClick={() => void submit(true)}
           >
-            Create draft
+            {submitting ? "Working…" : "Confirm batch"}
           </Button>
         </>
       }
@@ -320,83 +337,18 @@ function CreateDraftModal({
   );
 }
 
-/**
- * An in-app confirmation rather than `window.confirm()`: some browser
- * contexts (embedded previews among them) block native dialogs and return
- * false instantly, which made Confirm look like it did nothing at all.
- */
-function ConfirmBatchModal({
-  batch,
-  onClose,
-  onConfirm,
-}: {
-  batch: BatchRecord;
-  onClose: () => void;
-  onConfirm: () => Promise<void>;
-}) {
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // M batches are numbered but never enter Bespoke's MES — see
-  // docs/batch-book-api.md — so don't promise them a dispatch.
-  const dispatches = batch.batchType !== "M";
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title="Confirm this batch?"
-      description={batch.productName ?? `Type ${batch.batchType} batch`}
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            icon={<CheckCircle size={15} weight="bold" />}
-            disabled={submitting}
-            onClick={async () => {
-              setSubmitting(true);
-              setError(null);
-              try {
-                await onConfirm();
-              } catch (err) {
-                setError(err instanceof Error ? err.message : "Failed to confirm this batch.");
-                setSubmitting(false);
-              }
-            }}
-          >
-            {submitting ? "Confirming…" : "Confirm batch"}
-          </Button>
-        </>
-      }
-    >
-      <div className="grid gap-3">
-        {error ? <PermissionNotice message={error} /> : null}
-        <p className="text-sm text-foreground">
-          This permanently assigns the next <strong>{batch.batchType}</strong> batch number
-          {dispatches ? " and sends the batch to Order/Calculation Check in the MES pipeline" : ""}. It can&apos;t
-          be undone.
-        </p>
-        {!dispatches ? (
-          <p className="text-xs text-[var(--muted-foreground)]">
-            M-type batches are numbered and confirmed here, but don&apos;t enter the MES pipeline — they wait for their
-            own pipeline.
-          </p>
-        ) : null}
-      </div>
-    </Modal>
-  );
-}
-
 function EditBatchModal({
   batch,
   onClose,
   onSave,
+  onConfirm,
 }: {
   batch: BatchRecord;
   onClose: () => void;
   onSave: (patch: BatchPatch, reason?: string) => Promise<void>;
+  /** Present for a draft: finishes data entry by confirming it here, rather
+   *  than leaving a confirm action sitting on the log. */
+  onConfirm?: (patch: BatchPatch) => Promise<void>;
 }) {
   const isDraft = batch.status === "DRAFT";
   const [productName, setProductName] = useState(batch.productName ?? "");
@@ -407,46 +359,56 @@ function EditBatchModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const currentPatch = (): BatchPatch => ({
+    productName: productName || null,
+    quantity: quantity || null,
+    unit: unit || null,
+    plannedManufactureDate: plannedDate || null,
+  });
+
+  async function run(action: () => Promise<void>) {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await action();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That didn't work.");
+      setSubmitting(false);
+    }
+  }
+
   return (
     <Modal
       open
       onClose={onClose}
-      title={isDraft ? "Edit draft" : `Edit ${batch.batchNumber ?? "batch"}`}
+      title={isDraft ? "Finish this batch" : `Edit ${batch.batchNumber ?? "batch"}`}
       description={
         isDraft
-          ? undefined
+          ? "Confirming assigns the next number in this type's sequence and can't be undone."
           : "This record is confirmed — every change here is logged to the audit trail with your reason."
       }
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose} disabled={submitting}>
             Cancel
           </Button>
           <Button
-            variant="primary"
+            variant="secondary"
             disabled={submitting || (!isDraft && reason.trim().length === 0)}
-            onClick={async () => {
-              setSubmitting(true);
-              setError(null);
-              try {
-                await onSave(
-                  {
-                    productName: productName || null,
-                    quantity: quantity || null,
-                    unit: unit || null,
-                    plannedManufactureDate: plannedDate || null,
-                  },
-                  isDraft ? undefined : reason,
-                );
-              } catch (err) {
-                setError(err instanceof Error ? err.message : "Failed to save changes.");
-              } finally {
-                setSubmitting(false);
-              }
-            }}
+            onClick={() => void run(() => onSave(currentPatch(), isDraft ? undefined : reason))}
           >
-            Save changes
+            {isDraft ? "Save as draft" : "Save changes"}
           </Button>
+          {onConfirm ? (
+            <Button
+              variant="primary"
+              icon={<CheckCircle size={15} weight="bold" />}
+              disabled={submitting}
+              onClick={() => void run(() => onConfirm(currentPatch()))}
+            >
+              {submitting ? "Working…" : "Confirm batch"}
+            </Button>
+          ) : null}
         </>
       }
     >

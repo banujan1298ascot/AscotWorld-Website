@@ -129,11 +129,17 @@ export function useBatchBook(statusFilter?: BatchBookStatus) {
     }
   }, [load]);
 
+  /** Returns the created record, so a caller entering a batch can confirm it
+   *  in the same step without waiting for the list to come back. */
   const createDraft = useCallback(
-    async (input: BatchDraftInput) => {
+    async (input: BatchDraftInput): Promise<BatchRecord> => {
       if (!user) throw new Error("Not signed in.");
-      await apiFetch("/api/batch-book", user.id, { method: "POST", body: JSON.stringify(input) });
+      const { batch } = await apiFetch<{ batch: BatchRecord }>("/api/batch-book", user.id, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
       await refresh();
+      return batch;
     },
     [user, refresh],
   );
