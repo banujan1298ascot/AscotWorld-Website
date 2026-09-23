@@ -1,19 +1,42 @@
 "use client";
 
 /**
- * Rotatable 3D model of the production floor, with each room's live count
- * of batches waiting at its stations floating above it. Built from simple
- * primitives (no model files to load or license) off the plan in
- * src/lib/floorPlan.ts. Loaded client-side only — see the dynamic import in
- * the reports page — so three.js never lands in any other page's bundle.
+ * Rotatable 3D model of the production floor, styled after the site's
+ * floor-plan render: white walls on a pale tiled floor, glowing neon service
+ * pipes tracing each room, stainless vessels, shelving and benches — with
+ * each room's live count of batches waiting at its stations floating above
+ * it. Built from primitives off the plan in src/lib/floorPlan.ts (no model
+ * files to load or license) and loaded client-side only — see the dynamic
+ * import in the reports page — so three.js never lands in another page's
+ * bundle.
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Environment, Lightformer, OrbitControls } from "@react-three/drei";
+import {
+  AccumulativeShadows,
+  Environment,
+  Instance,
+  Instances,
+  Lightformer,
+  OrbitControls,
+  RandomizedLight,
+  RoundedBox,
+} from "@react-three/drei";
 import * as THREE from "three";
-import { CheckCircle, Gear, Pill, Printer, ShareNetwork } from "@phosphor-icons/react/dist/ssr";
+import { ArrowCounterClockwise, CheckCircle, Gear, Pill, Printer, ShareNetwork } from "@phosphor-icons/react/dist/ssr";
 import type { Icon } from "@phosphor-icons/react";
-import { FLOOR_CENTER, FLOOR_ROOMS, type FloorRoom, type RoomIcon, type RoomLoad } from "@/lib/floorPlan";
+import {
+  FLOOR_CENTER,
+  FLOOR_DOORS,
+  FLOOR_LIGHTS,
+  FLOOR_ROOMS,
+  FLOOR_WALLS,
+  SERVICE_PIPES,
+  type FloorRoom,
+  type PlanPoint,
+  type RoomIcon,
+  type RoomLoad,
+} from "@/lib/floorPlan";
 
 const ICONS: Record<RoomIcon, Icon> = {
   capsule: Pill,
@@ -23,173 +46,343 @@ const ICONS: Record<RoomIcon, Icon> = {
   share: ShareNetwork,
 };
 
-interface Palette {
-  base: string;
-  floor: string;
-  wall: string;
-  wallTop: string;
-  metal: string;
-  fixture: string;
-  bin: string;
-  ambient: number;
-}
-
-const LIGHT: Palette = {
-  base: "#d9e0ea",
-  floor: "#eef2f7",
-  wall: "#dfe5ee",
-  wallTop: "#f8fafc",
-  metal: "#cfd6df",
-  fixture: "#e6ebf2",
-  bin: "#5b8def",
-  ambient: 0.75,
+const COLORS = {
+  floor: "#e9edf2",
+  tileLine: "#d6dde6",
+  base: "#bfc9d6",
+  wall: "#d9e0e9",
+  wallCap: "#f7f9fc",
+  steel: "#e2e7ed",
+  steelDark: "#9ba6b4",
+  white: "#f6f8fb",
+  panel: "#1f2a3d",
+  screen: "#4cc3ff",
+  binBlue: "#4a8ef0",
+  binLight: "#a9cdfa",
+  binWhite: "#f3f6fa",
+  cardboard: "#d9b98b",
+  pallet: "#b89a72",
+  statusLight: "#58b6ff",
 };
 
-const DARK: Palette = {
-  base: "#070f2a",
-  floor: "#101b3d",
-  wall: "#1a2854",
-  wallTop: "#2b3c73",
-  metal: "#8d9bb5",
-  fixture: "#233366",
-  bin: "#3b82f6",
-  ambient: 0.45,
-};
-
-const WALL_HEIGHT = 0.5;
-const WALL_THICKNESS = 0.08;
-const PIPE_INSET = 0.2;
+const WALL = { outerHeight: 0.58, innerHeight: 0.52, outerThickness: 0.16, innerThickness: 0.1 };
+const PIPE = { y: 0.13, radius: 0.05 };
 
 /** Plan [x, z] → world, centred on the origin. */
-function toWorld([x, z]: [number, number], y = 0): THREE.Vector3 {
+function toWorld([x, z]: PlanPoint, y = 0): THREE.Vector3 {
   return new THREE.Vector3(x - FLOOR_CENTER[0], y, z - FLOOR_CENTER[1]);
 }
 
-/** Moves every edge of a rectilinear outline `d` inwards. */
-function insetOutline(outline: [number, number][], d: number): [number, number][] {
-  const n = outline.length;
-  // Shoelace sign tells which side of each edge is "inside".
-  let area = 0;
-  for (let i = 0; i < n; i++) {
-    const [x1, z1] = outline[i];
-    const [x2, z2] = outline[(i + 1) % n];
-    area += x1 * z2 - x2 * z1;
-  }
-  const inward = area > 0 ? 1 : -1;
-  const normal = (a: [number, number], b: [number, number]): [number, number] => {
-    const dx = b[0] - a[0];
-    const dz = b[1] - a[1];
-    const len = Math.hypot(dx, dz) || 1;
-    return [(-dz / len) * inward, (dx / len) * inward];
-  };
-  return outline.map((p, i) => {
-    const prev = outline[(i - 1 + n) % n];
-    const next = outline[(i + 1) % n];
-    const n1 = normal(prev, p);
-    const n2 = normal(p, next);
-    // Edges meet at right angles, so the corner moves d along each normal.
-    return [p[0] + (n1[0] + n2[0]) * d, p[1] + (n1[1] + n2[1]) * d];
-  });
+/** Y-rotation that lays a group's +x axis along the segment a → b. */
+function headingOf(a: PlanPoint, b: PlanPoint): number {
+  return Math.atan2(-(b[1] - a[1]), b[0] - a[0]);
 }
 
-function segments(outline: [number, number][]): [[number, number], [number, number]][] {
-  return outline.map((p, i) => [p, outline[(i + 1) % outline.length]]);
+function segmentsOf(path: PlanPoint[]): [PlanPoint, PlanPoint][] {
+  return path.slice(1).map((p, i) => [path[i], p]);
 }
 
 /* ---------------------------------------------------------------------------
- * Building shell
+ * Shared materials and textures
  * ------------------------------------------------------------------------- */
 
-function RoomFloor({ room, palette }: { room: FloorRoom; palette: Palette }) {
-  const geometry = useMemo(() => {
-    const shape = new THREE.Shape(
-      room.outline.map(([x, z]) => new THREE.Vector2(x - FLOOR_CENTER[0], -(z - FLOOR_CENTER[1]))),
-    );
-    return new THREE.ExtrudeGeometry(shape, { depth: 0.06, bevelEnabled: false });
-  }, [room.outline]);
-  const color = useMemo(
-    () => new THREE.Color(palette.floor).lerp(new THREE.Color(room.accent), 0.05),
-    [palette.floor, room.accent],
+function useMaterials() {
+  const materials = useMemo(() => {
+    const tiles = document.createElement("canvas");
+    tiles.width = tiles.height = 128;
+    const t = tiles.getContext("2d")!;
+    t.fillStyle = COLORS.floor;
+    t.fillRect(0, 0, 128, 128);
+    t.strokeStyle = COLORS.tileLine;
+    t.lineWidth = 2;
+    t.strokeRect(1, 1, 126, 126);
+    const tileTexture = new THREE.CanvasTexture(tiles);
+    tileTexture.wrapS = tileTexture.wrapT = THREE.RepeatWrapping;
+    tileTexture.colorSpace = THREE.SRGBColorSpace;
+    tileTexture.anisotropy = 4;
+
+    // Soft falloff across a strip's width — the light a neon pipe throws on
+    // the floor either side of it.
+    const falloff = document.createElement("canvas");
+    falloff.width = 4;
+    falloff.height = 64;
+    const f = falloff.getContext("2d")!;
+    const gradient = f.createLinearGradient(0, 0, 0, 64);
+    gradient.addColorStop(0, "#000");
+    gradient.addColorStop(0.5, "#fff");
+    gradient.addColorStop(1, "#000");
+    f.fillStyle = gradient;
+    f.fillRect(0, 0, 4, 64);
+    const glowFalloff = new THREE.CanvasTexture(falloff);
+
+    return {
+      tileTexture,
+      glowFalloff,
+      floor: new THREE.MeshStandardMaterial({ map: tileTexture, roughness: 0.75 }),
+      base: new THREE.MeshStandardMaterial({ color: COLORS.base, roughness: 0.8 }),
+      wall: new THREE.MeshStandardMaterial({ color: COLORS.wall, roughness: 0.55 }),
+      wallCap: new THREE.MeshStandardMaterial({ color: COLORS.wallCap, roughness: 0.35 }),
+      steel: new THREE.MeshStandardMaterial({ color: COLORS.steel, metalness: 1, roughness: 0.2 }),
+      steelDark: new THREE.MeshStandardMaterial({ color: COLORS.steelDark, metalness: 0.9, roughness: 0.35 }),
+      white: new THREE.MeshStandardMaterial({ color: COLORS.white, roughness: 0.45 }),
+      panel: new THREE.MeshStandardMaterial({ color: COLORS.panel, roughness: 0.3 }),
+      screen: new THREE.MeshStandardMaterial({
+        color: COLORS.screen,
+        emissive: COLORS.screen,
+        emissiveIntensity: 1.1,
+        toneMapped: false,
+      }),
+      cardboard: new THREE.MeshStandardMaterial({ color: COLORS.cardboard, roughness: 0.85 }),
+      pallet: new THREE.MeshStandardMaterial({ color: COLORS.pallet, roughness: 0.9 }),
+      statusLight: new THREE.MeshStandardMaterial({
+        color: COLORS.statusLight,
+        emissive: COLORS.statusLight,
+        emissiveIntensity: 2.2,
+        toneMapped: false,
+      }),
+      door: new THREE.MeshPhysicalMaterial({ color: "#f4f7fb", roughness: 0.2, clearcoat: 0.6 }),
+    };
+  }, []);
+
+  useEffect(
+    () => () => {
+      Object.values(materials).forEach((m) => (m as { dispose?: () => void }).dispose?.());
+    },
+    [materials],
   );
+  return materials;
+}
+
+type Materials = ReturnType<typeof useMaterials>;
+
+/* ---------------------------------------------------------------------------
+ * Building shell: base, floors, walls, doors
+ * ------------------------------------------------------------------------- */
+
+function shapeFrom(outline: PlanPoint[]): THREE.Shape {
+  return new THREE.Shape(outline.map(([x, z]) => new THREE.Vector2(x - FLOOR_CENTER[0], -(z - FLOOR_CENTER[1]))));
+}
+
+const FOOTPRINT: PlanPoint[] = [
+  [0.52, 5.37],
+  [3.22, 5.37],
+  [3.22, 3.07],
+  [5.72, 3.07],
+  [5.72, 0.67],
+  [9.78, 0.67],
+  [9.78, 14.08],
+  [0.52, 14.08],
+];
+
+function Shell({ m }: { m: Materials }) {
+  const base = useMemo(
+    () =>
+      new THREE.ExtrudeGeometry(shapeFrom(FOOTPRINT), {
+        depth: 0.34,
+        bevelEnabled: true,
+        bevelSize: 0.05,
+        bevelThickness: 0.05,
+        bevelSegments: 3,
+      }),
+    [],
+  );
+  const floors = useMemo(
+    () => FLOOR_ROOMS.map((room) => new THREE.ExtrudeGeometry(shapeFrom(room.outline), { depth: 0.04, bevelEnabled: false })),
+    [],
+  );
+
   return (
-    <mesh geometry={geometry} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-      <meshStandardMaterial color={color} roughness={0.85} />
-    </mesh>
+    <group>
+      <mesh geometry={base} material={m.base} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.36, 0]} receiveShadow />
+      {floors.map((geometry, i) => (
+        <mesh key={i} geometry={geometry} material={m.floor} rotation={[-Math.PI / 2, 0, 0]} receiveShadow />
+      ))}
+      {FLOOR_WALLS.flatMap((wall, i) => wallPieces(wall).map((piece, j) => <WallPiece key={`${i}-${j}`} {...piece} m={m} />))}
+      {FLOOR_DOORS.map((door, i) => (
+        <Door key={i} {...door} m={m} />
+      ))}
+      {FLOOR_LIGHTS.map((at, i) => {
+        const p = toWorld(at, WALL.outerHeight + 0.04);
+        return (
+          <mesh key={i} position={p} material={m.statusLight}>
+            <boxGeometry args={[0.2, 0.05, 0.2]} />
+          </mesh>
+        );
+      })}
+    </group>
   );
 }
 
-function Wall({ from, to, palette }: { from: [number, number]; to: [number, number]; palette: Palette }) {
+/** Splits a wall at its door openings into the solid runs either side. */
+function wallPieces(wall: (typeof FLOOR_WALLS)[number]) {
+  const length = Math.hypot(wall.to[0] - wall.from[0], wall.to[1] - wall.from[1]);
+  const along = (d: number): PlanPoint => [
+    wall.from[0] + ((wall.to[0] - wall.from[0]) * d) / length,
+    wall.from[1] + ((wall.to[1] - wall.from[1]) * d) / length,
+  ];
+  const cuts = [...(wall.gaps ?? [])].sort((a, b) => a[0] - b[0]);
+  const pieces: { from: PlanPoint; to: PlanPoint; outer: boolean }[] = [];
+  let start = 0;
+  for (const [gapStart, gapEnd] of cuts) {
+    if (gapStart > start) pieces.push({ from: along(start), to: along(gapStart), outer: !!wall.outer });
+    start = gapEnd;
+  }
+  if (start < length) pieces.push({ from: along(start), to: along(length), outer: !!wall.outer });
+  return pieces;
+}
+
+function WallPiece({ from, to, outer, m }: { from: PlanPoint; to: PlanPoint; outer: boolean; m: Materials }) {
   const a = toWorld(from);
   const b = toWorld(to);
-  const length = a.distanceTo(b);
   const mid = a.clone().add(b).multiplyScalar(0.5);
-  const angle = Math.atan2(-(b.z - a.z), b.x - a.x);
+  const thickness = outer ? WALL.outerThickness : WALL.innerThickness;
+  const height = outer ? WALL.outerHeight : WALL.innerHeight;
+  const length = a.distanceTo(b) + thickness;
   return (
-    <group position={[mid.x, 0, mid.z]} rotation={[0, angle, 0]}>
-      <mesh position={[0, WALL_HEIGHT / 2, 0]} castShadow receiveShadow>
-        <boxGeometry args={[length + WALL_THICKNESS, WALL_HEIGHT, WALL_THICKNESS]} />
-        <meshStandardMaterial color={palette.wall} roughness={0.7} />
+    <group position={[mid.x, 0, mid.z]} rotation={[0, headingOf(from, to), 0]}>
+      <mesh position={[0, height / 2, 0]} material={m.wall} castShadow receiveShadow>
+        <boxGeometry args={[length, height, thickness]} />
       </mesh>
-      <mesh position={[0, WALL_HEIGHT + 0.01, 0]}>
-        <boxGeometry args={[length + WALL_THICKNESS, 0.02, WALL_THICKNESS + 0.02]} />
-        <meshStandardMaterial color={palette.wallTop} roughness={0.5} />
+      <mesh position={[0, height + 0.012, 0]} material={m.wallCap}>
+        <boxGeometry args={[length + 0.02, 0.024, thickness + 0.03]} />
       </mesh>
     </group>
   );
 }
 
-/** Neon pipe tracing the inside of a room's walls. Busier rooms glow
- *  brighter and pulse, so the bottleneck reads at a glance. */
-function RoomPipe({ room, load, animate }: { room: FloorRoom; load: RoomLoad | undefined; animate: boolean }) {
-  const waiting = load?.waiting ?? 0;
-  const base = waiting === 0 ? 0.6 : Math.min(2.6, 1.3 + waiting * 0.25);
-
-  // One material for every piece of this room's pipe, so the pulse only has
-  // one thing to animate.
-  const material = useMemo(
-    () => new THREE.MeshStandardMaterial({ color: room.accent, emissive: room.accent, toneMapped: false }),
-    [room.accent],
+function Door({
+  from,
+  to,
+  double,
+  swing,
+  m,
+}: {
+  from: PlanPoint;
+  to: PlanPoint;
+  double?: boolean;
+  swing: 1 | -1;
+  m: Materials;
+}) {
+  const width = Math.hypot(to[0] - from[0], to[1] - from[1]);
+  const leaves = double
+    ? [
+        { hinge: from, towards: to, width: width / 2, turn: swing },
+        { hinge: to, towards: from, width: width / 2, turn: -swing },
+      ]
+    : [{ hinge: from, towards: to, width, turn: swing }];
+  return (
+    <>
+      {leaves.map((leaf, i) => {
+        const p = toWorld(leaf.hinge);
+        return (
+          <group key={i} position={[p.x, 0.04, p.z]} rotation={[0, headingOf(leaf.hinge, leaf.towards) + leaf.turn * 0.65, 0]}>
+            <mesh position={[leaf.width / 2, 0.25, 0]} material={m.door} castShadow>
+              <boxGeometry args={[leaf.width - 0.02, 0.48, 0.035]} />
+            </mesh>
+            <mesh position={[leaf.width / 2, 0.36, 0]} material={m.screen}>
+              <boxGeometry args={[leaf.width * 0.5, 0.1, 0.04]} />
+            </mesh>
+          </group>
+        );
+      })}
+    </>
   );
-  // The frame loop mutates it through a ref — three.js materials are meant
-  // to be changed in place every frame, outside React's render.
-  const live = useRef<THREE.MeshStandardMaterial | null>(null);
+}
+
+/* ---------------------------------------------------------------------------
+ * Neon pipes
+ * ------------------------------------------------------------------------- */
+
+/** One glowing pipe network: bright core tube, soft halo, and the light it
+ *  spills on the floor. Busier rooms pulse, so the bottleneck reads at a
+ *  glance. */
+function NeonPipes({
+  paths,
+  color,
+  waiting,
+  animate,
+  glowFalloff,
+}: {
+  paths: PlanPoint[][];
+  color: string;
+  waiting: number;
+  animate: boolean;
+  glowFalloff: THREE.Texture;
+}) {
+  const busy = waiting > 0;
+  const mats = useMemo(() => {
+    const tint = new THREE.Color(color).lerp(new THREE.Color("#ffffff"), 0.35);
+    return {
+      core: new THREE.MeshStandardMaterial({ color: tint, emissive: color, emissiveIntensity: 1.6, toneMapped: false }),
+      halo: new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.22, depthWrite: false, toneMapped: false }),
+      spill: new THREE.MeshBasicMaterial({
+        color,
+        alphaMap: glowFalloff,
+        transparent: true,
+        opacity: 0.4,
+        depthWrite: false,
+        toneMapped: false,
+      }),
+    };
+  }, [color, glowFalloff]);
+  const live = useRef<typeof mats | null>(null);
   useEffect(() => {
-    live.current = material;
-    return () => material.dispose();
-  }, [material]);
+    live.current = mats;
+    return () => Object.values(mats).forEach((mat) => mat.dispose());
+  }, [mats]);
 
   useFrame(({ clock }) => {
-    if (!live.current) return;
-    live.current.emissiveIntensity =
-      animate && waiting > 0 ? base + Math.sin(clock.elapsedTime * 2.2) * 0.45 : base;
+    const current = live.current;
+    if (!current) return;
+    const pulse = animate && busy ? (Math.sin(clock.elapsedTime * 2.4) + 1) / 2 : 0.5;
+    current.core.emissiveIntensity = busy ? 1.6 + pulse * 1.2 : 1.2;
+    current.halo.opacity = busy ? 0.18 + pulse * 0.18 : 0.16;
+    current.spill.opacity = busy ? 0.3 + pulse * 0.25 : 0.28;
   });
 
   const pieces = useMemo(() => {
-    const inset = insetOutline(room.outline, PIPE_INSET);
     const up = new THREE.Vector3(0, 1, 0);
-    return segments(inset).map(([from, to]) => {
-      const a = toWorld(from, 0.14);
-      const b = toWorld(to, 0.14);
-      const dir = b.clone().sub(a);
-      const length = dir.length();
-      return {
-        position: a.clone().add(b).multiplyScalar(0.5),
-        quaternion: new THREE.Quaternion().setFromUnitVectors(up, dir.normalize()),
-        length,
-        corner: a,
-      };
-    });
-  }, [room.outline]);
+    return paths.flatMap((path) =>
+      segmentsOf(path).map(([from, to]) => {
+        const a = toWorld(from, PIPE.y);
+        const b = toWorld(to, PIPE.y);
+        const dir = b.clone().sub(a);
+        const length = dir.length();
+        return {
+          mid: a.clone().add(b).multiplyScalar(0.5),
+          quaternion: new THREE.Quaternion().setFromUnitVectors(up, dir.normalize()),
+          heading: headingOf(from, to),
+          length,
+        };
+      }),
+    );
+  }, [paths]);
+  const joints = useMemo(() => paths.flatMap((path) => path.map((p) => toWorld(p, PIPE.y))), [paths]);
 
   return (
     <group>
       {pieces.map((piece, i) => (
         <group key={i}>
-          <mesh position={piece.position} quaternion={piece.quaternion} material={material}>
-            <cylinderGeometry args={[0.045, 0.045, piece.length, 10]} />
+          <mesh position={piece.mid} quaternion={piece.quaternion} material={mats.core}>
+            <cylinderGeometry args={[PIPE.radius, PIPE.radius, piece.length, 12]} />
           </mesh>
-          <mesh position={piece.corner} material={material}>
-            <sphereGeometry args={[0.07, 12, 12]} />
+          <mesh position={piece.mid} quaternion={piece.quaternion} material={mats.halo}>
+            <cylinderGeometry args={[PIPE.radius * 2.6, PIPE.radius * 2.6, piece.length, 12, 1, true]} />
+          </mesh>
+          <group position={[piece.mid.x, 0.05, piece.mid.z]} rotation={[0, piece.heading, 0]}>
+            <mesh rotation={[-Math.PI / 2, 0, 0]} material={mats.spill}>
+              <planeGeometry args={[piece.length + 0.3, 0.75]} />
+            </mesh>
+          </group>
+        </group>
+      ))}
+      {joints.map((p, i) => (
+        <group key={`j${i}`} position={p}>
+          <mesh material={mats.core}>
+            <sphereGeometry args={[PIPE.radius * 1.5, 16, 12]} />
+          </mesh>
+          <mesh material={mats.halo}>
+            <sphereGeometry args={[PIPE.radius * 3, 16, 12]} />
           </mesh>
         </group>
       ))}
@@ -198,86 +391,94 @@ function RoomPipe({ room, load, animate }: { room: FloorRoom; load: RoomLoad | u
 }
 
 /* ---------------------------------------------------------------------------
- * Furniture — simple primitives, placed per room type
+ * Equipment
  * ------------------------------------------------------------------------- */
 
-function Tank({ at, palette, scale = 1 }: { at: [number, number]; palette: Palette; scale?: number }) {
-  const p = toWorld(at);
+/** Stainless process vessel on legs, with a domed head and agitator drive. */
+function Vessel({ at, r = 0.32, h = 0.7, m }: { at: PlanPoint; r?: number; h?: number; m: Materials }) {
+  const p = toWorld(at, 0.04);
+  const skirt = 0.34;
   return (
-    <group position={[p.x, 0.06, p.z]} scale={scale}>
-      <mesh position={[0, 0.55, 0]} castShadow>
-        <cylinderGeometry args={[0.32, 0.32, 0.8, 24]} />
-        <meshStandardMaterial color={palette.metal} metalness={0.85} roughness={0.25} />
+    <group position={p}>
+      {[0, 1, 2, 3].map((i) => {
+        const angle = Math.PI / 4 + (i * Math.PI) / 2;
+        return (
+          <mesh key={i} position={[Math.cos(angle) * r * 0.8, skirt / 2, Math.sin(angle) * r * 0.8]} material={m.steelDark} castShadow>
+            <cylinderGeometry args={[0.022, 0.022, skirt, 6]} />
+          </mesh>
+        );
+      })}
+      <mesh position={[0, skirt - 0.06, 0]} rotation={[Math.PI, 0, 0]} material={m.steel} castShadow>
+        <coneGeometry args={[r, 0.16, 32]} />
       </mesh>
-      <mesh position={[0, 0.95, 0]} castShadow>
-        <sphereGeometry args={[0.32, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2]} />
-        <meshStandardMaterial color={palette.metal} metalness={0.85} roughness={0.25} />
+      <mesh position={[0, skirt + h / 2, 0]} material={m.steel} castShadow>
+        <cylinderGeometry args={[r, r, h, 40]} />
       </mesh>
-      {[0, 1, 2, 3].map((i) => (
-        <mesh key={i} position={[Math.cos((i * Math.PI) / 2) * 0.24, 0.08, Math.sin((i * Math.PI) / 2) * 0.24]}>
-          <cylinderGeometry args={[0.025, 0.025, 0.16, 6]} />
-          <meshStandardMaterial color={palette.metal} metalness={0.6} roughness={0.4} />
-        </mesh>
-      ))}
+      <mesh position={[0, skirt + 0.12, 0]} rotation={[Math.PI / 2, 0, 0]} material={m.steelDark}>
+        <torusGeometry args={[r + 0.012, 0.014, 8, 40]} />
+      </mesh>
+      <mesh position={[0, skirt + h, 0]} scale={[1, 0.42, 1]} material={m.steel} castShadow>
+        <sphereGeometry args={[r, 40, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
+      </mesh>
+      <mesh position={[0, skirt + h + r * 0.42 + 0.06, 0]} material={m.steelDark} castShadow>
+        <cylinderGeometry args={[0.06, 0.07, 0.14, 16]} />
+      </mesh>
+      <mesh position={[0, skirt + h + r * 0.42 + 0.17, 0]} material={m.white} castShadow>
+        <boxGeometry args={[0.12, 0.09, 0.12]} />
+      </mesh>
+      <mesh position={[r * 0.55, skirt + h + r * 0.3, 0]} material={m.steelDark}>
+        <cylinderGeometry args={[0.03, 0.03, 0.12, 8]} />
+      </mesh>
     </group>
   );
 }
 
-/** Shelving run, long side along x unless `alongZ`. */
-function Rack({
+/** Upright cabinet or machine, with a lit display on its front. */
+function Cabinet({
   at,
-  length,
-  alongZ = false,
-  palette,
+  size,
+  facing = 0,
+  m,
 }: {
-  at: [number, number];
-  length: number;
-  alongZ?: boolean;
-  palette: Palette;
+  at: PlanPoint;
+  size: [number, number, number];
+  facing?: number;
+  m: Materials;
 }) {
-  const p = toWorld(at);
-  const bins = Math.max(2, Math.floor(length / 0.28));
+  const p = toWorld(at, 0.04);
+  const [w, h, d] = size;
   return (
-    <group position={[p.x, 0.06, p.z]} rotation={[0, alongZ ? Math.PI / 2 : 0, 0]}>
-      <mesh position={[0, 0.42, 0]} castShadow>
-        <boxGeometry args={[length, 0.84, 0.3]} />
-        <meshStandardMaterial color={palette.fixture} roughness={0.6} />
+    <group position={p} rotation={[0, facing, 0]}>
+      <RoundedBox args={[w, h, d]} radius={0.025} smoothness={2} position={[0, h / 2, 0]} material={m.white} castShadow />
+      <mesh position={[0, h * 0.68, d / 2 + 0.004]} material={m.panel}>
+        <planeGeometry args={[w * 0.62, h * 0.26]} />
       </mesh>
-      {[0.22, 0.5, 0.76].map((y) =>
-        Array.from({ length: bins }).map((_, i) => (
-          <mesh key={`${y}-${i}`} position={[-length / 2 + (i + 0.5) * (length / bins), y, 0.1]}>
-            <boxGeometry args={[(length / bins) * 0.7, 0.12, 0.14]} />
-            <meshStandardMaterial color={palette.bin} roughness={0.5} />
-          </mesh>
-        )),
-      )}
+      <mesh position={[0, h * 0.68, d / 2 + 0.006]} material={m.screen}>
+        <planeGeometry args={[w * 0.5, h * 0.16]} />
+      </mesh>
+      <mesh position={[0, h * 0.28, d / 2 + 0.004]} material={m.steelDark}>
+        <planeGeometry args={[w * 0.7, 0.02]} />
+      </mesh>
     </group>
   );
 }
 
-function Bench({ at, width, palette, alongZ = false }: { at: [number, number]; width: number; palette: Palette; alongZ?: boolean }) {
-  const p = toWorld(at);
+/** Big multi-module label printer line for the Print Room. */
+function PrintLine({ at, m }: { at: PlanPoint; m: Materials }) {
+  const modules = [-0.62, 0, 0.62];
   return (
-    <group position={[p.x, 0.06, p.z]} rotation={[0, alongZ ? Math.PI / 2 : 0, 0]}>
-      <mesh position={[0, 0.3, 0]} castShadow>
-        <boxGeometry args={[width, 0.06, 0.55]} />
-        <meshStandardMaterial color={palette.fixture} roughness={0.5} />
-      </mesh>
-      {[-1, 1].map((side) => (
-        <mesh key={side} position={[(side * width) / 2.3, 0.14, 0]}>
-          <boxGeometry args={[0.05, 0.28, 0.5]} />
-          <meshStandardMaterial color={palette.metal} metalness={0.5} roughness={0.4} />
-        </mesh>
-      ))}
-      {[-0.25, 0.25].map((x) => (
-        <group key={x} position={[x * width, 0.33, -0.12]}>
-          <mesh position={[0, 0.14, 0]}>
-            <boxGeometry args={[0.32, 0.22, 0.03]} />
-            <meshStandardMaterial color="#1e293b" roughness={0.3} />
+    <group position={toWorld(at, 0.04)}>
+      {modules.map((z, i) => (
+        <group key={i} position={[0, 0, z]}>
+          <RoundedBox args={[0.78, 0.62, 0.56]} radius={0.03} smoothness={2} position={[0, 0.31, 0]} material={m.white} castShadow />
+          <mesh position={[0.395, 0.42, 0]} rotation={[0, Math.PI / 2, 0]} material={m.panel}>
+            <planeGeometry args={[0.38, 0.16]} />
           </mesh>
-          <mesh position={[0, 0.14, 0.017]}>
-            <planeGeometry args={[0.28, 0.18]} />
-            <meshStandardMaterial color="#38bdf8" emissive="#38bdf8" emissiveIntensity={0.6} toneMapped={false} />
+          <mesh position={[0.397, 0.42, 0]} rotation={[0, Math.PI / 2, 0]} material={m.screen}>
+            <planeGeometry args={[0.28, 0.08]} />
+          </mesh>
+          <mesh position={[0, 0.66, 0]} rotation={[Math.PI / 2, 0, 0]} material={m.steelDark} castShadow>
+            <cylinderGeometry args={[0.07, 0.07, 0.4, 16]} />
           </mesh>
         </group>
       ))}
@@ -285,42 +486,57 @@ function Bench({ at, width, palette, alongZ = false }: { at: [number, number]; w
   );
 }
 
-function Machine({ at, size, palette }: { at: [number, number]; size: [number, number, number]; palette: Palette }) {
-  const p = toWorld(at);
-  const [w, h, d] = size;
+/** Workbench with twin monitors and a keyboard. */
+function Workbench({ at, width, facing = 0, m }: { at: PlanPoint; width: number; facing?: number; m: Materials }) {
   return (
-    <group position={[p.x, 0.06, p.z]}>
-      <mesh position={[0, h / 2, 0]} castShadow>
-        <boxGeometry args={[w, h, d]} />
-        <meshStandardMaterial color={palette.fixture} roughness={0.45} metalness={0.2} />
+    <group position={toWorld(at, 0.04)} rotation={[0, facing, 0]}>
+      <mesh position={[0, 0.34, 0]} material={m.white} castShadow receiveShadow>
+        <boxGeometry args={[width, 0.04, 0.55]} />
       </mesh>
-      <mesh position={[0, h * 0.72, d / 2 + 0.005]}>
-        <planeGeometry args={[w * 0.5, h * 0.18]} />
-        <meshStandardMaterial color="#60a5fa" emissive="#60a5fa" emissiveIntensity={0.5} toneMapped={false} />
+      <mesh position={[0, 0.12, 0]} material={m.white} castShadow>
+        <boxGeometry args={[width * 0.94, 0.03, 0.46]} />
       </mesh>
+      {[-1, 1].map((side) =>
+        [-1, 1].map((depth) => (
+          <mesh key={`${side}${depth}`} position={[(side * width) / 2.1, 0.17, depth * 0.23]} material={m.steelDark}>
+            <boxGeometry args={[0.03, 0.34, 0.03]} />
+          </mesh>
+        )),
+      )}
+      {[-0.22, 0.22].map((x) => (
+        <group key={x} position={[x * width, 0.36, -0.14]}>
+          <mesh position={[0, 0.02, 0]} material={m.steelDark}>
+            <boxGeometry args={[0.08, 0.03, 0.06]} />
+          </mesh>
+          <mesh position={[0, 0.16, 0]} material={m.panel} castShadow>
+            <boxGeometry args={[0.36, 0.22, 0.025]} />
+          </mesh>
+          <mesh position={[0, 0.16, 0.014]} material={m.screen}>
+            <planeGeometry args={[0.32, 0.18]} />
+          </mesh>
+          <mesh position={[0, 0.005, 0.2]} material={m.panel}>
+            <boxGeometry args={[0.26, 0.012, 0.09]} />
+          </mesh>
+        </group>
+      ))}
     </group>
   );
 }
 
-function Pallet({ at, palette, seed }: { at: [number, number]; palette: Palette; seed: number }) {
-  const p = toWorld(at);
-  const stacks = 2 + (seed % 2);
+/** Low trolley. */
+function Trolley({ at, m }: { at: PlanPoint; m: Materials }) {
   return (
-    <group position={[p.x, 0.06, p.z]}>
-      <mesh position={[0, 0.04, 0]}>
-        <boxGeometry args={[0.7, 0.08, 0.7]} />
-        <meshStandardMaterial color="#b08a5a" roughness={0.9} />
+    <group position={toWorld(at, 0.04)}>
+      <mesh position={[0, 0.3, 0]} material={m.white} castShadow>
+        <boxGeometry args={[0.55, 0.03, 0.38]} />
       </mesh>
-      {Array.from({ length: stacks }).map((_, level) =>
-        [
-          [-0.16, -0.16],
-          [0.16, -0.16],
-          [-0.16, 0.16],
-          [0.16, 0.16],
-        ].map(([x, z], i) => (
-          <mesh key={`${level}-${i}`} position={[x, 0.17 + level * 0.19, z]} castShadow>
-            <boxGeometry args={[0.3, 0.18, 0.3]} />
-            <meshStandardMaterial color={(i + level + seed) % 3 === 0 ? "#d9a45b" : palette.bin} roughness={0.7} />
+      <mesh position={[0, 0.1, 0]} material={m.white} castShadow>
+        <boxGeometry args={[0.55, 0.03, 0.38]} />
+      </mesh>
+      {[-1, 1].map((x) =>
+        [-1, 1].map((z) => (
+          <mesh key={`${x}${z}`} position={[x * 0.25, 0.16, z * 0.16]} material={m.steelDark}>
+            <boxGeometry args={[0.02, 0.32, 0.02]} />
           </mesh>
         )),
       )}
@@ -328,62 +544,194 @@ function Pallet({ at, palette, seed }: { at: [number, number]; palette: Palette;
   );
 }
 
-function Furniture({ room, palette }: { room: FloorRoom; palette: Palette }) {
-  switch (room.furniture) {
-    case "internals":
-      return (
-        <>
-          <Tank at={[6.8, 1.9]} palette={palette} />
-          <Tank at={[7.7, 1.9]} palette={palette} scale={0.85} />
-          <Tank at={[6.8, 3.1]} palette={palette} scale={0.9} />
-          <Tank at={[7.2, 6.6]} palette={palette} />
-          <Tank at={[8.1, 6.6]} palette={palette} scale={0.85} />
-          <Tank at={[7.6, 7.8]} palette={palette} scale={0.7} />
-          <Machine at={[8.6, 2.9]} size={[0.6, 0.6, 0.5]} palette={palette} />
-          <Rack at={[9.5, 3.2]} length={1.8} alongZ palette={palette} />
-          <Rack at={[9.5, 6.9]} length={2.2} alongZ palette={palette} />
-        </>
-      );
-    case "dispensary":
-      return (
-        <>
-          <Rack at={[1.0, 7.0]} length={2.4} alongZ palette={palette} />
-          <Rack at={[3.85, 4.5]} length={1.6} alongZ palette={palette} />
-          <Rack at={[5.45, 4.5]} length={1.6} alongZ palette={palette} />
-          <Bench at={[2.6, 5.95]} width={1.6} palette={palette} />
-          <Bench at={[4.65, 7.3]} width={1.2} palette={palette} />
-          <Machine at={[4.65, 4.2]} size={[0.5, 0.5, 0.5]} palette={palette} />
-        </>
-      );
-    case "print":
-      return (
-        <>
-          <Machine at={[1.45, 12.3]} size={[0.8, 0.7, 1.3]} palette={palette} />
-          <Machine at={[2.75, 12.6]} size={[0.6, 0.55, 0.8]} palette={palette} />
-          <Machine at={[2.75, 11.4]} size={[0.6, 0.5, 0.6]} palette={palette} />
-          <Rack at={[1.9, 9.0]} length={1.4} palette={palette} />
-        </>
-      );
-    case "checking":
-      return (
-        <>
-          <Bench at={[4.7, 9.9]} width={1.6} palette={palette} />
-          <Bench at={[4.7, 12.4]} width={1.6} palette={palette} />
-        </>
-      );
-    case "externals":
-      return (
-        <>
-          {[6.8, 7.9, 9.0].map((x, i) => (
-            <Pallet key={`a${x}`} at={[x, 10.3]} palette={palette} seed={i} />
-          ))}
-          {[6.8, 7.9, 9.0].map((x, i) => (
-            <Pallet key={`b${x}`} at={[x, 12.8]} palette={palette} seed={i + 1} />
-          ))}
-          <Rack at={[9.55, 11.55]} length={1.4} alongZ palette={palette} />
-        </>
-      );
-  }
+function Pallet({ at, m, tiers = 2 }: { at: PlanPoint; m: Materials; tiers?: number }) {
+  return (
+    <group position={toWorld(at, 0.04)}>
+      <mesh position={[0, 0.04, 0]} material={m.pallet} castShadow>
+        <boxGeometry args={[0.62, 0.08, 0.62]} />
+      </mesh>
+      {Array.from({ length: tiers }).map((_, level) =>
+        [
+          [-0.14, -0.14],
+          [0.14, -0.14],
+          [-0.14, 0.14],
+          [0.14, 0.14],
+        ].map(([x, z], i) => (
+          <mesh key={`${level}-${i}`} position={[x, 0.17 + level * 0.18, z]} material={m.cardboard} castShadow>
+            <boxGeometry args={[0.26, 0.17, 0.26]} />
+          </mesh>
+        )),
+      )}
+    </group>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Shelving — instanced, since there are hundreds of bins
+ * ------------------------------------------------------------------------- */
+
+interface RackSpec {
+  at: PlanPoint;
+  length: number;
+  alongZ?: boolean;
+  height?: number;
+  levels?: number;
+  /** Mix of bin colours on this rack. */
+  stock?: "blue" | "white" | "mixed";
+}
+
+const RACKS: RackSpec[] = [
+  // Dispensary
+  { at: [1.05, 6.35], length: 1.4, alongZ: true, height: 1.0, levels: 5 },
+  { at: [1.05, 7.85], length: 1.3, alongZ: true, height: 1.0, levels: 5 },
+  { at: [3.85, 4.65], length: 1.6, alongZ: true, height: 0.95, levels: 4 },
+  { at: [5.42, 5.55], length: 1.4, alongZ: true, height: 0.95, levels: 4 },
+  { at: [4.55, 4.55], length: 0.5, height: 0.8, levels: 3, stock: "mixed" },
+  // Internals — along the east wall
+  { at: [9.3, 2.9], length: 0.9, alongZ: true, height: 0.95, levels: 4, stock: "mixed" },
+  { at: [9.3, 4.5], length: 0.8, alongZ: true, height: 0.95, levels: 4, stock: "mixed" },
+  { at: [9.3, 6.0], length: 0.8, alongZ: true, height: 0.95, levels: 4, stock: "mixed" },
+  { at: [9.3, 7.6], length: 1.4, alongZ: true, height: 0.95, levels: 4, stock: "mixed" },
+  { at: [8.6, 6.1], length: 0.5, height: 0.8, levels: 3, stock: "mixed" },
+  // Externals
+  { at: [7.1, 11.9], length: 0.6, height: 0.9, levels: 4, stock: "white" },
+  { at: [9.05, 11.9], length: 0.6, height: 0.9, levels: 4, stock: "white" },
+  { at: [7.1, 13.25], length: 0.6, height: 0.6, levels: 3, stock: "white" },
+  { at: [9.05, 13.25], length: 0.6, height: 0.6, levels: 3, stock: "white" },
+];
+
+const BIN_COLOURS: Record<NonNullable<RackSpec["stock"]>, string[]> = {
+  blue: [COLORS.binBlue, COLORS.binLight, COLORS.binBlue],
+  white: [COLORS.binWhite, COLORS.binBlue, COLORS.binWhite, COLORS.binLight],
+  mixed: [COLORS.binBlue, COLORS.binWhite, COLORS.binLight],
+};
+
+function Shelving({ m }: { m: Materials }) {
+  const { posts, shelves, bins } = useMemo(() => {
+    const posts: { position: THREE.Vector3; scale: [number, number, number] }[] = [];
+    const shelves: { position: THREE.Vector3; rotation: number; scale: [number, number, number] }[] = [];
+    const bins: { position: THREE.Vector3; rotation: number; color: string }[] = [];
+    const depth = 0.3;
+    const up = new THREE.Vector3(0, 1, 0);
+    RACKS.forEach((rack, r) => {
+      const height = rack.height ?? 0.9;
+      const levels = rack.levels ?? 4;
+      const rotation = rack.alongZ ? Math.PI / 2 : 0;
+      const centre = toWorld(rack.at, 0.04);
+      const place = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z).applyAxisAngle(up, rotation).add(centre);
+      for (const x of [-rack.length / 2, rack.length / 2]) {
+        for (const z of [-depth / 2, depth / 2]) posts.push({ position: place(x, height / 2, z), scale: [0.03, height, 0.03] });
+      }
+      const palette = BIN_COLOURS[rack.stock ?? "blue"];
+      const perShelf = Math.max(2, Math.floor(rack.length / 0.15));
+      for (let level = 0; level < levels; level++) {
+        const y = 0.05 + (level * (height - 0.08)) / Math.max(1, levels - 1);
+        shelves.push({ position: place(0, y, 0), rotation, scale: [rack.length, 0.02, depth] });
+        if (level === levels - 1) continue;
+        for (let i = 0; i < perShelf; i++) {
+          // Deterministic gaps and colour mix so racks don't look stamped.
+          const seed = (r * 31 + level * 7 + i * 13) % 11;
+          if (seed === 3) continue;
+          bins.push({
+            position: place(-rack.length / 2 + (i + 0.5) * (rack.length / perShelf), y + 0.065, 0),
+            rotation,
+            color: palette[seed % palette.length],
+          });
+        }
+      }
+    });
+    return { posts, shelves, bins };
+  }, []);
+
+  return (
+    <>
+      <Instances limit={posts.length} material={m.steelDark} castShadow>
+        <boxGeometry args={[1, 1, 1]} />
+        {posts.map((post, i) => (
+          <Instance key={i} position={post.position} scale={post.scale} />
+        ))}
+      </Instances>
+      <Instances limit={shelves.length} material={m.white} castShadow receiveShadow>
+        <boxGeometry args={[1, 1, 1]} />
+        {shelves.map((shelf, i) => (
+          <Instance key={i} position={shelf.position} rotation={[0, shelf.rotation, 0]} scale={shelf.scale} />
+        ))}
+      </Instances>
+      <Instances limit={bins.length} castShadow>
+        <boxGeometry args={[0.11, 0.11, 0.24]} />
+        <meshStandardMaterial roughness={0.45} />
+        {bins.map((bin, i) => (
+          <Instance key={i} position={bin.position} rotation={[0, bin.rotation, 0]} color={bin.color} />
+        ))}
+      </Instances>
+    </>
+  );
+}
+
+const HATCHES: PlanPoint[] = [
+  [3.95, 8.62],
+  [5.92, 8.7],
+  [5.92, 9.15],
+  [3.62, 13.5],
+];
+
+function Equipment({ m }: { m: Materials }) {
+  return (
+    <>
+      {/* Internals — vessel clusters, as on the drawing */}
+      <Vessel at={[7.05, 2.35]} m={m} />
+      <Vessel at={[7.15, 3.25]} r={0.36} h={0.78} m={m} />
+      <Vessel at={[7.95, 3.6]} r={0.3} m={m} />
+      <Vessel at={[7.85, 4.35]} r={0.26} h={0.6} m={m} />
+      <Vessel at={[8.35, 1.9]} r={0.28} h={0.62} m={m} />
+      <Vessel at={[7.0, 5.35]} r={0.3} m={m} />
+      <Vessel at={[7.15, 6.05]} r={0.24} h={0.55} m={m} />
+      <Vessel at={[7.05, 7.15]} r={0.33} m={m} />
+      <Vessel at={[7.75, 7.15]} r={0.33} m={m} />
+      <Vessel at={[7.45, 8.2]} r={0.24} h={0.55} m={m} />
+      <Cabinet at={[8.05, 2.95]} size={[0.5, 0.55, 0.4]} m={m} />
+      <Cabinet at={[8.45, 3.55]} size={[0.36, 0.7, 0.3]} facing={-Math.PI / 2} m={m} />
+      <Cabinet at={[8.4, 8.5]} size={[0.42, 0.7, 0.32]} m={m} />
+      <Cabinet at={[9.3, 1.6]} size={[0.42, 0.75, 0.3]} facing={-Math.PI / 2} m={m} />
+
+      {/* Dispensary — weigh desk, trolleys */}
+      <Workbench at={[3.0, 5.95]} width={1.5} facing={Math.PI} m={m} />
+      <Trolley at={[4.65, 5.25]} m={m} />
+      <Trolley at={[5.05, 7.45]} m={m} />
+      <Trolley at={[3.85, 8.0]} m={m} />
+      <Cabinet at={[4.8, 6.5]} size={[0.3, 0.3, 0.3]} m={m} />
+
+      {/* Print Room — label print line and cabinets */}
+      <PrintLine at={[1.85, 12.05]} m={m} />
+      <Cabinet at={[2.95, 11.6]} size={[0.44, 0.62, 0.4]} facing={-Math.PI / 2} m={m} />
+      <Cabinet at={[2.95, 12.65]} size={[0.44, 0.62, 0.4]} facing={-Math.PI / 2} m={m} />
+      <Cabinet at={[2.05, 9.15]} size={[0.8, 0.45, 0.35]} m={m} />
+      <Cabinet at={[3.0, 9.12]} size={[0.28, 0.5, 0.26]} m={m} />
+
+      {/* Checking Room — inspection benches */}
+      <Workbench at={[4.85, 11.65]} width={1.4} m={m} />
+      <Workbench at={[4.65, 12.95]} width={1.1} m={m} />
+      <Trolley at={[4.05, 10.9]} m={m} />
+
+      {/* Externals — pallets of finished goods */}
+      <Pallet at={[8.1, 12.1]} m={m} />
+      <Pallet at={[8.1, 13.2]} m={m} tiers={1} />
+      <Cabinet at={[6.8, 10.1]} size={[0.4, 0.4, 0.3]} m={m} />
+
+      {/* Pass-through hatches where service lines cross walls */}
+      {HATCHES.map((at, i) => (
+        <RoundedBox
+          key={i}
+          args={[0.26, 0.26, 0.26]}
+          radius={0.03}
+          smoothness={2}
+          position={toWorld(at, 0.17)}
+          material={m.white}
+          castShadow
+        />
+      ))}
+    </>
+  );
 }
 
 /* ---------------------------------------------------------------------------
@@ -397,8 +745,7 @@ function Furniture({ room, palette }: { room: FloorRoom; palette: Palette }) {
 
 type LabelRefs = React.RefObject<Record<string, HTMLDivElement | null>>;
 
-/** Pin height above the floor, in world units (the building group sits 0.3 down). */
-const LABEL_HEIGHT = 1.05;
+const LABEL_HEIGHT = 1.0;
 
 /** Moves one label to a projected screen point — DOM writes, outside React. */
 function placeLabel(el: HTMLDivElement, x: number, y: number, depth: number): void {
@@ -423,6 +770,7 @@ function LabelProjector({ labelRefs }: { labelRefs: LabelRefs }) {
   return null;
 }
 
+/** White card with a coloured icon disc, as on the floor drawing. */
 function RoomLabel({
   room,
   load,
@@ -434,7 +782,7 @@ function RoomLabel({
   width: number;
   ref: (el: HTMLDivElement | null) => void;
 }) {
-  const compact = width < 700;
+  const compact = width < 640;
   const Icon = ICONS[room.icon];
   const waiting = load?.waiting ?? 0;
   const stations = load?.stationNames.join(" · ") ?? "";
@@ -447,29 +795,34 @@ function RoomLabel({
       aria-label={`${room.name}: ${waiting} batch${waiting === 1 ? "" : "es"} incoming${stations ? ` (${stations})` : ""}`}
       title={stations}
     >
-      <div
-        className={`flex items-center whitespace-nowrap rounded-xl border border-[var(--border)] bg-[var(--surface)]/90 shadow-lg backdrop-blur ${
-          compact ? "gap-1.5 py-1 pl-1 pr-2" : "gap-2 py-1.5 pl-1.5 pr-3"
-        }`}
-      >
+      <div className="flex items-center">
         <span
-          className={`grid shrink-0 place-items-center rounded-full text-white ${compact ? "h-6 w-6" : "h-8 w-8"}`}
-          style={{ background: room.accent, boxShadow: `0 0 12px ${room.accent}88` }}
+          className={`relative z-10 grid shrink-0 place-items-center rounded-full border-[3px] border-white text-white ${
+            compact ? "h-8 w-8" : "h-11 w-11"
+          }`}
+          style={{ background: room.accent, boxShadow: `0 4px 14px ${room.accent}55` }}
         >
-          <Icon size={compact ? 13 : 16} weight="bold" />
+          <Icon size={compact ? 15 : 21} weight="bold" />
         </span>
-        <span className="leading-none">
-          <span className={`block font-bold text-[var(--foreground)] ${compact ? "text-[10px]" : "text-[12px]"}`}>
-            {room.name}
+        <span
+          className={`-ml-3 whitespace-nowrap rounded-xl bg-white/95 leading-none shadow-[0_6px_20px_rgb(15_23_42/0.14)] ${
+            compact ? "py-1 pl-4 pr-2" : "py-1.5 pl-5 pr-3"
+          }`}
+        >
+          {/* Two-line name ("Print / Room"), as on the drawing — keeps the
+              cards narrow enough not to collide over small rooms. */}
+          <span className={`block font-semibold text-[#1e293b] ${compact ? "text-[10px]" : "text-[12px]"}`}>
+            {room.name.split(" ").map((word, i) => (
+              <span key={i} className="block leading-[1.15]">
+                {word}
+              </span>
+            ))}
           </span>
           <span className="mt-0.5 flex items-baseline gap-1">
-            <span
-              className={`font-extrabold tabular-nums ${compact ? "text-sm" : "text-lg"}`}
-              style={{ color: room.accent }}
-            >
+            <span className={`font-bold tabular-nums ${compact ? "text-[15px]" : "text-[22px]"}`} style={{ color: room.accent }}>
               {waiting}
             </span>
-            <span className="text-[10px] font-semibold text-[var(--muted-foreground)]">incoming</span>
+            <span className={`font-semibold text-[#64748b] ${compact ? "text-[9px]" : "text-[10.5px]"}`}>incoming</span>
           </span>
         </span>
       </div>
@@ -478,127 +831,127 @@ function RoomLabel({
 }
 
 /* ---------------------------------------------------------------------------
- * Scene
+ * Camera
  * ------------------------------------------------------------------------- */
 
-/** Nudges the rendered view sideways so the model sits clear of the
- *  "Pipeline now" panel overlaid on the card's bottom-left, and up a touch
- *  because perspective draws the near half of the floor larger than the far
- *  half. Orbiting still pivots on the building's centre — only the framing
- *  moves. */
-function FrameOffset({ fraction }: { fraction: number }) {
-  const camera = useThree((state) => state.camera);
-  const width = useThree((state) => state.size.width);
-  const height = useThree((state) => state.size.height);
-  useEffect(() => {
-    const shift = width >= 640 ? -width * fraction : 0;
-    camera.setViewOffset(width, height, shift, height * 0.05, width, height);
-    return () => camera.clearViewOffset();
-  }, [camera, width, height, fraction]);
-  return null;
-}
+/** Default view: from the south, tipped back ~30° from straight down — the
+ *  angle the floor drawing is rendered at. */
+const DEFAULT_TILT = 0.52;
 
-/** How far the building reaches from its centre, sideways and (foreshortened
- *  by the downward viewing angle) up the screen, labels included. Fitting
- *  these as spheres rather than flat extents leaves room for the corner
- *  nearest the camera, which perspective draws larger than the rest. */
-const FIT_RADIUS_ACROSS = 7.5;
-const FIT_RADIUS_UP = 6.6;
+/** How far the floor reaches from its centre, sideways and up the screen at
+ *  the default tilt, labels included — what the camera fits to. */
+const FIT_ACROSS = 5.0;
+const FIT_UP = 7.1;
+
+interface ControlsLike {
+  saveState(): void;
+  reset(): void;
+  update(): void;
+}
 
 function setCameraDistance(camera: THREE.Camera, distance: number): void {
   camera.position.setLength(distance);
 }
 
 /** Pulls the camera in or out whenever the card resizes so the whole floor
- *  fits — close on a wide desktop card, further back on a narrow phone. */
+ *  fits — and records that as the view "Reset view" returns to. */
 function AutoFit() {
   const camera = useThree((state) => state.camera) as THREE.PerspectiveCamera;
+  const controls = useThree((state) => state.controls) as unknown as ControlsLike | null;
   const width = useThree((state) => state.size.width);
   const height = useThree((state) => state.size.height);
   useEffect(() => {
     const halfV = THREE.MathUtils.degToRad(camera.fov / 2);
     const halfH = Math.atan(Math.tan(halfV) * (width / Math.max(1, height)));
-    const distance = Math.max(FIT_RADIUS_ACROSS / Math.sin(halfH), FIT_RADIUS_UP / Math.sin(halfV));
-    setCameraDistance(camera, distance);
-  }, [camera, width, height]);
+    setCameraDistance(camera, Math.max(FIT_ACROSS / Math.tan(halfH), FIT_UP / Math.tan(halfV)));
+    controls?.update();
+    controls?.saveState();
+  }, [camera, controls, width, height]);
   return null;
 }
 
+/** Nudges the rendered view right so the floor sits clear of the "Pipeline
+ *  now" panel overlaid on the card's left. Orbiting still pivots on the
+ *  building's centre — only the framing moves. */
+function FrameOffset({ fraction }: { fraction: number }) {
+  const camera = useThree((state) => state.camera);
+  const width = useThree((state) => state.size.width);
+  const height = useThree((state) => state.size.height);
+  useEffect(() => {
+    const shift = width >= 640 ? -width * fraction : 0;
+    camera.setViewOffset(width, height, shift, height * 0.02, width, height);
+    return () => camera.clearViewOffset();
+  }, [camera, width, height, fraction]);
+  return null;
+}
+
+function ResetOnSignal({ signal }: { signal: number }) {
+  const controls = useThree((state) => state.controls) as unknown as ControlsLike | null;
+  useEffect(() => {
+    if (signal > 0) controls?.reset();
+  }, [signal, controls]);
+  return null;
+}
+
+/* ---------------------------------------------------------------------------
+ * Scene
+ * ------------------------------------------------------------------------- */
+
 function Scene({
   loads,
-  palette,
   reducedMotion,
   labelRefs,
+  resetSignal,
 }: {
   loads: Record<string, RoomLoad>;
-  palette: Palette;
   reducedMotion: boolean;
   labelRefs: LabelRefs;
+  resetSignal: number;
 }) {
-  const [autoRotate, setAutoRotate] = useState(true);
-  const resumeTimer = useRef<number | undefined>(undefined);
-
-  useEffect(() => () => window.clearTimeout(resumeTimer.current), []);
-
-  const baseOutline = useMemo(() => {
-    const shape = new THREE.Shape();
-    // Slab under the whole building, a little proud of the walls.
-    const pts: [number, number][] = [
-      [0.35, 5.25],
-      [3.15, 5.25],
-      [3.15, 3.05],
-      [5.65, 3.05],
-      [5.65, 0.55],
-      [10.15, 0.55],
-      [10.15, 13.95],
-      [0.35, 13.95],
-    ];
-    pts.forEach(([x, z], i) => {
-      const v = new THREE.Vector2(x - FLOOR_CENTER[0], -(z - FLOOR_CENTER[1]));
-      if (i === 0) shape.moveTo(v.x, v.y);
-      else shape.lineTo(v.x, v.y);
-    });
-    return new THREE.ExtrudeGeometry(shape, { depth: 0.12, bevelEnabled: true, bevelSize: 0.06, bevelThickness: 0.04, bevelSegments: 2 });
-  }, []);
+  const m = useMaterials();
 
   return (
     <>
-      <ambientLight intensity={palette.ambient} />
-      <directionalLight
-        position={[8, 14, 6]}
-        intensity={1.3}
-        castShadow
-        shadow-mapSize={[1024, 1024]}
-        shadow-camera-left={-9}
-        shadow-camera-right={9}
-        shadow-camera-top={9}
-        shadow-camera-bottom={-9}
-      />
-      <Environment resolution={128}>
-        <Lightformer intensity={2} position={[0, 6, 0]} rotation-x={Math.PI / 2} scale={[12, 12, 1]} />
-        <Lightformer intensity={1} position={[-6, 3, 4]} rotation-y={Math.PI / 2} scale={[8, 3, 1]} />
-        <Lightformer intensity={1} position={[6, 3, -4]} rotation-y={-Math.PI / 2} scale={[8, 3, 1]} />
+      <hemisphereLight args={["#ffffff", "#b8c4d3", 0.55]} />
+      <directionalLight position={[4, 12, 6]} intensity={0.9} />
+      {/* A bright studio for the steel to reflect — polished metal mirrors
+          its surroundings, so a dark environment would turn it black. */}
+      <Environment resolution={256} environmentIntensity={0.55}>
+        <color attach="background" args={["#e9eef4"]} />
+        <Lightformer intensity={2.2} position={[0, 8, 0]} rotation-x={Math.PI / 2} scale={[14, 14, 1]} />
+        <Lightformer intensity={1.2} position={[-8, 3, 2]} rotation-y={Math.PI / 2} scale={[12, 4, 1]} />
+        <Lightformer intensity={1.2} position={[8, 3, -2]} rotation-y={-Math.PI / 2} scale={[12, 4, 1]} />
+        <Lightformer intensity={0.8} position={[0, 2, 10]} scale={[14, 3, 1]} color="#dbeafe" />
       </Environment>
 
-      <group position={[0, -0.3, 0]}>
-        <mesh geometry={baseOutline} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.12, 0]} receiveShadow>
-          <meshStandardMaterial color={palette.base} roughness={0.9} />
-        </mesh>
-        {FLOOR_ROOMS.map((room) => (
-          <group key={room.id}>
-            <RoomFloor room={room} palette={palette} />
-            {segments(room.outline).map(([from, to], i) => (
-              <Wall key={i} from={from} to={to} palette={palette} />
-            ))}
-            <RoomPipe room={room} load={loads[room.id]} animate={!reducedMotion} />
-            <Furniture room={room} palette={palette} />
-          </group>
-        ))}
-      </group>
+      <Shell m={m} />
+      <Shelving m={m} />
+      <Equipment m={m} />
+      {FLOOR_ROOMS.map((room) => (
+        <NeonPipes
+          key={room.id}
+          paths={room.pipes}
+          color={room.pipeColor}
+          waiting={loads[room.id]?.waiting ?? 0}
+          animate={!reducedMotion}
+          glowFalloff={m.glowFalloff}
+        />
+      ))}
+      {SERVICE_PIPES.map((pipe, i) => (
+        <NeonPipes key={`s${i}`} paths={[pipe.path]} color={pipe.color} waiting={0} animate={false} glowFalloff={m.glowFalloff} />
+      ))}
+
+      {/* Soft, baked contact shadows — on the floor and in a halo round the
+          building, like the drawing. The scene is static, so it only has
+          to accumulate once. */}
+      <AccumulativeShadows temporal frames={70} alphaTest={0.8} opacity={0.75} scale={22} color="#51607a" position={[0, 0.045, 0]}>
+        <RandomizedLight amount={8} radius={6} ambient={0.55} intensity={1.1} position={[3, 12, 5]} bias={0.001} />
+      </AccumulativeShadows>
 
       <AutoFit />
-      <FrameOffset fraction={0.1} />
+      <FrameOffset fraction={0.15} />
       <LabelProjector labelRefs={labelRefs} />
+      <ResetOnSignal signal={resetSignal} />
       <OrbitControls
         makeDefault
         enablePan={false}
@@ -606,19 +959,8 @@ function Scene({
         dampingFactor={0.08}
         minDistance={9}
         maxDistance={48}
-        minPolarAngle={0.25}
-        maxPolarAngle={1.02}
-        autoRotate={autoRotate && !reducedMotion}
-        autoRotateSpeed={0.5}
-        onStart={() => {
-          window.clearTimeout(resumeTimer.current);
-          setAutoRotate(false);
-        }}
-        onEnd={() => {
-          if (reducedMotion) return;
-          // Hand control back to the slow spin once people stop exploring.
-          resumeTimer.current = window.setTimeout(() => setAutoRotate(true), 8000);
-        }}
+        minPolarAngle={0}
+        maxPolarAngle={1.1}
       />
     </>
   );
@@ -632,7 +974,7 @@ function subscribeReducedMotion(onChange: () => void): () => void {
   return () => query.removeEventListener("change", onChange);
 }
 
-export default function FloorModel({ loads, dark }: { loads: Record<string, RoomLoad>; dark: boolean }) {
+export default function FloorModel({ loads }: { loads: Record<string, RoomLoad> }) {
   const reducedMotion = useSyncExternalStore(
     subscribeReducedMotion,
     () => window.matchMedia(REDUCED_MOTION).matches,
@@ -641,6 +983,7 @@ export default function FloorModel({ loads, dark }: { loads: Record<string, Room
   const labelRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const container = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
+  const [resetSignal, setResetSignal] = useState(0);
 
   useEffect(() => {
     const el = container.current;
@@ -665,13 +1008,13 @@ export default function FloorModel({ loads, dark }: { loads: Record<string, Room
   return (
     <div ref={container} className="relative h-full w-full">
       <Canvas
-        shadows="percentage"
+        shadows
         dpr={[1, 2]}
-        camera={{ position: [15, 17.5, 19.5], fov: 34 }}
+        camera={{ position: [0, Math.cos(DEFAULT_TILT) * 24, Math.sin(DEFAULT_TILT) * 24], fov: 34 }}
         gl={{ antialias: true, alpha: true }}
         style={{ touchAction: "none" }}
       >
-        <Scene loads={loads} palette={dark ? DARK : LIGHT} reducedMotion={reducedMotion} labelRefs={labelRefs} />
+        <Scene loads={loads} reducedMotion={reducedMotion} labelRefs={labelRefs} resetSignal={resetSignal} />
       </Canvas>
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         {FLOOR_ROOMS.map((room) => (
@@ -686,6 +1029,15 @@ export default function FloorModel({ loads, dark }: { loads: Record<string, Room
           />
         ))}
       </div>
+      <button
+        type="button"
+        onClick={() => setResetSignal((n) => n + 1)}
+        className="absolute bottom-3 right-3 z-20 flex items-center gap-1.5 rounded-full border border-[#dfe5ee] bg-white/90 px-3 py-1.5
+          text-[11px] font-bold text-[#334155] shadow-sm backdrop-blur transition-colors hover:bg-white"
+      >
+        <ArrowCounterClockwise size={13} weight="bold" />
+        Reset view
+      </button>
     </div>
   );
 }

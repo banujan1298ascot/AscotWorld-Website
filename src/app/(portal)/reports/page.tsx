@@ -29,7 +29,6 @@ import {
   useStationLoads,
   type OutputRange,
 } from "@/lib/productionReport";
-import { useTheme } from "@/lib/theme";
 
 // three.js is heavy and needs the browser — load it only here, only client-side.
 const FloorModel = dynamic(() => import("@/components/reports/FloorModel"), {
@@ -49,7 +48,6 @@ const stagger = (ms: number) => ({ "--stagger": `${ms}ms` }) as React.CSSPropert
 
 export default function ReportsPage() {
   const { user, can } = useAuth();
-  const { theme } = useTheme();
   const { departments, ready: departmentsReady, error: departmentsError } = useDepartments();
   // Bespoke is the only seeded department so far — same simplification as
   // the MES pipeline page.
@@ -131,75 +129,74 @@ export default function ReportsPage() {
 
       <div className="grid gap-4 xl:grid-cols-12">
         {/* ---- live floor model ------------------------------------------ */}
-        <Card
-          padded={false}
-          className="relative overflow-hidden animate-fade-in-up xl:col-span-8"
-          style={stagger(0)}
+        {/* Always light, whatever the app theme — it mirrors the site's
+            floor-plan render, which is a bright white model. */}
+        <div
+          className="card-interactive relative overflow-hidden rounded-lg border border-[#dfe5ee] text-[#0f172a] shadow-[var(--shadow-card)] animate-fade-in-up xl:col-span-8"
+          style={{ background: "radial-gradient(120% 90% at 50% 40%, #ffffff 0%, #f1f4f9 55%, #e4e9f1 100%)", ...stagger(0) }}
         >
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-wrap items-start justify-between gap-2 p-4">
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-wrap items-start justify-between gap-2 p-4">
             <div>
               <p className="flex items-center gap-2 text-base font-extrabold">
-                <Factory size={18} weight="bold" className="text-[var(--primary)]" />
+                <Factory size={18} weight="bold" className="text-[#2563eb]" />
                 {department?.name ?? "Production"} floor
               </p>
-              <p className="mt-0.5 flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+              <p className="mt-0.5 flex items-center gap-1.5 text-xs text-[#5b6b82]">
                 <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--success)] opacity-60 motion-reduce:animate-none" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--success)]" />
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#10b981] opacity-60 motion-reduce:animate-none" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-[#10b981]" />
                 </span>
                 Live · refreshes every {STATION_POLL_MS / 1000}s
               </p>
             </div>
-            <p className="hidden items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)]/80 px-2.5 py-1 text-[11px] font-semibold text-[var(--muted-foreground)] backdrop-blur sm:flex">
+            <p className="hidden items-center gap-1.5 rounded-full border border-[#dfe5ee] bg-white/80 px-2.5 py-1 text-[11px] font-semibold text-[#5b6b82] backdrop-blur sm:flex">
               <Cube size={13} weight="bold" />
               Drag to rotate · pinch or Ctrl + scroll to zoom
             </p>
           </div>
 
-          <div className="h-[380px] w-full sm:h-[460px] xl:h-[540px]">
+          <div className="h-[420px] w-full sm:h-[500px] xl:h-[620px]">
             {stations.error && !stations.data ? (
               <div className="grid h-full place-items-center p-6">
                 <ErrorNotice message={stations.error} />
               </div>
             ) : (
-              <FloorModel loads={loads} dark={theme === "dark"} />
+              <FloorModel loads={loads} />
             )}
           </div>
 
           {/* Pipeline-now panel, like the reference's strategy card. */}
-          <div className="border-t border-[var(--border)] p-3 sm:absolute sm:bottom-4 sm:left-4 sm:w-64 sm:rounded-2xl sm:border sm:bg-[var(--surface)]/85 sm:p-4 sm:shadow-[var(--shadow-raised)] sm:backdrop-blur">
-            <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-[var(--subtle-foreground)]">
-              Pipeline now
-            </p>
+          <div className="relative z-30 border-t border-[#dfe5ee] bg-white/70 p-3 sm:absolute sm:bottom-4 sm:left-4 sm:w-60 sm:rounded-2xl sm:border sm:bg-white/85 sm:p-4 sm:shadow-[0_10px_30px_rgb(15_23_42/0.12)] sm:backdrop-blur">
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#7c8aa0]">Pipeline now</p>
             {!stations.ready ? (
-              <Skeleton className="mt-2 h-16 w-full" />
+              <div className="mt-2 h-16 w-full animate-pulse rounded-lg bg-[#e8edf4]" />
             ) : (
               <>
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <div>
                     <p className="text-2xl font-extrabold tabular-nums">{waitingTotal}</p>
-                    <p className="text-[11px] font-semibold text-[var(--muted-foreground)]">waiting to start</p>
+                    <p className="text-[11px] font-semibold text-[#5b6b82]">waiting to start</p>
                   </div>
                   <div>
                     <p className="text-2xl font-extrabold tabular-nums">{inProgressTotal}</p>
-                    <p className="text-[11px] font-semibold text-[var(--muted-foreground)]">being worked on</p>
+                    <p className="text-[11px] font-semibold text-[#5b6b82]">being worked on</p>
                   </div>
                 </div>
                 {busiest && busiestWaiting > 0 ? (
-                  <div className="mt-3 rounded-xl bg-[var(--surface-sunken)] px-3 py-2 text-xs">
+                  <div className="mt-3 rounded-xl bg-[#eef2f7] px-3 py-2 text-xs">
                     <p className="font-bold">Most waiting: {busiest.name}</p>
-                    <p className="mt-0.5 text-[var(--muted-foreground)]">
+                    <p className="mt-0.5 text-[#5b6b82]">
                       {busiestWaiting} batch{busiestWaiting === 1 ? "" : "es"} queued at{" "}
                       {loads[busiest.id]?.stationNames.join(" and ")}.
                     </p>
                   </div>
                 ) : (
-                  <p className="mt-3 text-xs text-[var(--muted-foreground)]">Every station&apos;s queue is clear.</p>
+                  <p className="mt-3 text-xs text-[#5b6b82]">Every station&apos;s queue is clear.</p>
                 )}
               </>
             )}
           </div>
-        </Card>
+        </div>
 
         {/* ---- headline tiles + stage timing ------------------------------ */}
         <div className="grid content-start gap-4 xl:col-span-4">
@@ -431,8 +428,8 @@ export default function ReportsPage() {
 function FloorLoading() {
   return (
     <div className="grid h-full w-full place-items-center">
-      <div className="flex flex-col items-center gap-2 text-xs font-semibold text-[var(--muted-foreground)]">
-        <Cube size={28} weight="duotone" className="animate-pulse text-[var(--primary)]" />
+      <div className="flex flex-col items-center gap-2 text-xs font-semibold text-[#5b6b82]">
+        <Cube size={28} weight="duotone" className="animate-pulse text-[#2563eb]" />
         Building the floor model…
       </div>
     </div>
