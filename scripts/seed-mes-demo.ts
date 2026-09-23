@@ -2,12 +2,15 @@
  * Demo data for Batch Book + the MES pipeline, laid out so every station has
  * something to work on. Run after `npm run db:migrate && npm run db:seed`:
  *
- *   npx tsx scripts/seed-mes-demo.ts           # add a fresh set of batches
- *   npx tsx scripts/seed-mes-demo.ts --reset   # wipe all batch data first
+ *   npx tsx scripts/seed-mes-demo.ts                # add a fresh set of batches
+ *   npx tsx scripts/seed-mes-demo.ts --reset        # wipe all batch data first
+ *   npx tsx scripts/seed-mes-demo.ts --no-history   # skip the year of history
  *
- * Everything goes through the real Batch Book and MES service functions —
- * never raw inserts — so numbering, audit entries and stage transitions come
- * out exactly as they would from the UI.
+ * The live pipeline below goes through the real Batch Book and MES service
+ * functions — never raw inserts — so numbering, audit entries and stage
+ * transitions come out exactly as they would from the UI. The year of
+ * finished history the production report draws on is the one exception:
+ * it has to be backdated, so it's written directly (see demo-history.ts).
  *
  * For each station 2–7 you get:
  *   - batches waiting in Incoming
@@ -32,6 +35,7 @@ import {
 import type { ActingStaff } from "../src/server/actingStaff";
 import { confirmBatch, createDraft, type CreateDraftInput } from "../src/server/batch-book/service";
 import { claimBatch, failBatch, forwardBatch, sendBatchBack } from "../src/server/mes/service";
+import { seedProductionHistory } from "./demo-history";
 
 const CLERK: ActingStaff = { id: "staff_stage_1", role: "production" };
 const ADMIN: ActingStaff = { id: "staff_admin", role: "admin" };
@@ -125,6 +129,18 @@ async function main() {
     await db.delete(batchRecords);
     await db.delete(batchCounters);
     console.log("Reset: cleared every batch, transition, audit entry and batch-number counter.");
+  }
+
+  // First, so history takes the lower batch numbers and today's work
+  // follows on from it.
+  if (!process.argv.includes("--no-history")) {
+    const historical = await seedProductionHistory({
+      departmentId: bespoke.id,
+      stageId,
+      products: PRODUCTS,
+      clerkId: CLERK.id,
+    });
+    console.log(`History: ${historical} finished batches over the past year, for the production report.`);
   }
 
   /** Entered and confirmed by the Batch Book Clerk — lands in stage 2's Incoming. */

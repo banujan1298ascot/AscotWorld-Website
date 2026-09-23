@@ -164,3 +164,41 @@ rather than hanging — the same loading-state bug fixed on the MES page in
 Phase 2 turned up here too (`useDashboard` never resolves without a
 `departmentId`, which a failed department fetch leaves permanently unset)
 and was fixed the same way before calling this phase done.
+
+---
+
+## Production report page (reports redesign)
+
+`src/app/(portal)/reports/page.tsx` — laid out after the energy-dashboard
+reference: a live 3D floor model, headline tiles, a batches-made line chart,
+recent exceptions and a product timing search, with the original rework and
+per-operator tables kept underneath.
+
+### Endpoints (all `dashboard.view`, header `x-staff-id`)
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/mes/reports/output?departmentId&range=week\|month\|year` | Batches **made** (forwarded out of Warehouse) and **started** (confirmed) per day — last 7 or 30 days — or per month for the last 12, plus the total and % change against the equally long period before. The change is `null` when the MES wasn't in use for all of that earlier period. |
+| `GET /api/mes/reports/stations?departmentId` | Per station: `incoming`, `returned`, `inProgress` right now — the same split the MES board uses. Polled every 15s by the floor model. |
+| `GET /api/mes/reports/exceptions?departmentId` | The latest six send-backs and failures. |
+| `GET /api/mes/reports/products?departmentId&q=` | Product names containing every word typed ("amox 500" finds "Amoxicillin 500mg Capsules"), with total and finished batch counts. |
+| `GET /api/mes/reports/products/timing?departmentId&product=` | For one exact product name: average start-to-finish time (confirmed → out of Warehouse), average hands-on time (sum of claim → move-on per stage, queues excluded), quickest/slowest, per-station averages and — only with `dashboard.viewOperatorMetrics` — per-operator averages. `confidence` is `none` / `early` (<3 finished) / `building` (<10) / `reliable`. |
+
+### The floor model
+
+`src/components/reports/FloorModel.tsx` builds the floor from primitives
+(three.js via `@react-three/fiber`), loaded with `next/dynamic` so no other
+page pays for it. The room layout and **which MES stations belong to which
+room** live in `src/lib/floorPlan.ts` (`stationSequences`) — edit that list to
+move a station; a room's number is the total waiting (Incoming + Returned) at
+its stations. Room labels are plain DOM positioned each frame from the 3D
+scene, not drei's `<Html>`, which mounts a React root per label and misbehaves
+under React 19.
+
+### Demo history
+
+`npm run db:seed:demo` now also writes a year of finished batches
+(`scripts/demo-history.ts`, fixed random seed) so the chart and timing search
+have something to show. These are written directly rather than through the
+services, because they need backdated timestamps; they carry no audit-log
+entries. Skip them with `npx tsx scripts/seed-mes-demo.ts --reset --no-history`.
