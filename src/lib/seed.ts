@@ -4,9 +4,7 @@ import {
   DEFAULT_DEPARTMENTS,
   type AppNotification,
   type Batch,
-  type Conversation,
   type DepartmentRecord,
-  type Message,
   type ShiftEntry,
   type StaffMember,
   type Task,
@@ -667,123 +665,6 @@ const shiftSeed = (): ShiftEntry[] => {
 };
 
 /* -------------------------------------------------------------------------- */
-/* Messages                                                                   */
-/* -------------------------------------------------------------------------- */
-
-const conversationSeed = (): Conversation[] => [
-  {
-    id: "conv_1",
-    participantIds: ["staff_admin", "staff_qa_1"],
-    title: null,
-    lastMessageAt: stampAt(-1, 14, 5),
-    // Priya (admin) hasn't seen Aisha's last reply — demonstrates the unread badge.
-    lastReadAt: {
-      staff_admin: stampAt(-2, 9, 42),
-      staff_qa_1: stampAt(-1, 14, 5),
-    },
-    pinnedBy: [],
-    createdAt: stampAt(-2, 9, 15),
-    updatedAt: stampAt(-1, 14, 5),
-  },
-  {
-    id: "conv_2",
-    participantIds: ["staff_admin", "staff_qa_2", "staff_prod_3"],
-    title: "Tacrolimus line changeover",
-    lastMessageAt: stampAt(0, 8, 10),
-    lastReadAt: {
-      staff_admin: stampAt(-1, 0, 0),
-      staff_qa_2: stampAt(0, 8, 10),
-      staff_prod_3: stampAt(0, 7, 50),
-    },
-    // Pre-pinned for Priya, so opening Messages shows the "Pinned" section
-    // already in use rather than empty.
-    pinnedBy: ["staff_admin"],
-    createdAt: stampAt(0, 7, 50),
-    updatedAt: stampAt(0, 8, 10),
-  },
-  {
-    id: "conv_3",
-    participantIds: ["staff_prod_1", "staff_wh"],
-    title: null,
-    lastMessageAt: stampAt(-3, 11, 20),
-    lastReadAt: {
-      staff_prod_1: stampAt(-3, 11, 20),
-      staff_wh: stampAt(-3, 11, 20),
-    },
-    pinnedBy: [],
-    createdAt: stampAt(-3, 11, 5),
-    updatedAt: stampAt(-3, 11, 20),
-  },
-];
-
-const messageSeed = (): Message[] => [
-  {
-    id: "msg_1",
-    conversationId: "conv_1",
-    senderId: "staff_admin",
-    body: "Morning Aisha — what's the latest on the fill-weight investigation for AW-24121?",
-    createdAt: stampAt(-2, 9, 15),
-    updatedAt: stampAt(-2, 9, 15),
-  },
-  {
-    id: "msg_2",
-    conversationId: "conv_1",
-    senderId: "staff_qa_1",
-    body: "Sampled 20 units, 3 came in under spec. Holding the batch until we've reviewed Filler F1's calibration log.",
-    createdAt: stampAt(-2, 9, 40),
-    updatedAt: stampAt(-2, 9, 40),
-  },
-  {
-    id: "msg_3",
-    conversationId: "conv_1",
-    senderId: "staff_admin",
-    body: "Good call. Let me know as soon as you've got a result.",
-    createdAt: stampAt(-2, 9, 42),
-    updatedAt: stampAt(-2, 9, 42),
-  },
-  {
-    id: "msg_4",
-    conversationId: "conv_1",
-    senderId: "staff_qa_1",
-    body: "Will do — should have an answer by tomorrow.",
-    createdAt: stampAt(-1, 14, 5),
-    updatedAt: stampAt(-1, 14, 5),
-  },
-  {
-    id: "msg_5",
-    conversationId: "conv_2",
-    senderId: "staff_prod_3",
-    body: "Line 2 clean-down complete, changeover checklist signed off.",
-    createdAt: stampAt(0, 7, 50),
-    updatedAt: stampAt(0, 7, 50),
-  },
-  {
-    id: "msg_6",
-    conversationId: "conv_2",
-    senderId: "staff_qa_2",
-    body: "Thanks Sam — I'll verify the API lot before we start dispensing.",
-    createdAt: stampAt(0, 8, 10),
-    updatedAt: stampAt(0, 8, 10),
-  },
-  {
-    id: "msg_7",
-    conversationId: "conv_3",
-    senderId: "staff_wh",
-    body: "Have you got space for the extra pallet of bottles for AW-24124?",
-    createdAt: stampAt(-3, 11, 5),
-    updatedAt: stampAt(-3, 11, 5),
-  },
-  {
-    id: "msg_8",
-    conversationId: "conv_3",
-    senderId: "staff_prod_1",
-    body: "Yeah, warehouse bay 2 is clear — bring it over whenever.",
-    createdAt: stampAt(-3, 11, 20),
-    updatedAt: stampAt(-3, 11, 20),
-  },
-];
-
-/* -------------------------------------------------------------------------- */
 /* Notifications                                                              */
 /* -------------------------------------------------------------------------- */
 
@@ -794,7 +675,7 @@ const notificationSeed = (): AppNotification[] => [
     type: "message",
     title: "New message from Aisha Bello",
     body: "Will do — should have an answer by tomorrow.",
-    href: "/messages?c=conv_1",
+    href: "/messages",
     read: false,
     createdAt: stampAt(-1, 14, 5),
     updatedAt: stampAt(-1, 14, 5),
@@ -805,7 +686,7 @@ const notificationSeed = (): AppNotification[] => [
     type: "message",
     title: "New message from Tom Hargreaves",
     body: "Thanks Sam — I'll verify the API lot before we start dispensing.",
-    href: "/messages?c=conv_2",
+    href: "/messages",
     read: false,
     createdAt: stampAt(0, 8, 10),
     updatedAt: stampAt(0, 8, 10),
@@ -866,6 +747,4 @@ export const departmentCollection = createCollection<DepartmentRecord>("departme
 export const batchCollection = createCollection<Batch>("batches", batchSeed);
 export const taskCollection = createCollection<Task>("tasks", taskSeed);
 export const shiftCollection = createCollection<ShiftEntry>("shifts", shiftSeed);
-export const conversationCollection = createCollection<Conversation>("conversations", conversationSeed);
-export const messageCollection = createCollection<Message>("messages", messageSeed);
 export const notificationCollection = createCollection<AppNotification>("notifications", notificationSeed);

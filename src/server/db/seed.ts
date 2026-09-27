@@ -7,12 +7,13 @@
  * (same ids, e.g. "staff_admin") so a browser session signed in via the demo
  * localStorage auth maps onto a real row here — see the note in
  * src/server/db/schema/staff.ts. Also creates the Bespoke department and its
- * 7-stage pipeline (spec 3.0), since Bespoke is built first.
+ * 7-stage pipeline (spec 3.0), since Bespoke is built first, and — only
+ * into an empty messages table — a few demo conversations.
  */
 import "dotenv/config";
 import { eq } from "drizzle-orm";
 import { db } from "./client";
-import { departments, staff, stageDefinitions } from "./schema";
+import { conversationParticipants, conversations, departments, messages, staff, stageDefinitions } from "./schema";
 
 const STAFF = [
   { id: "staff_admin", name: "Priya Raman", role: "admin" as const, department: "Management", email: "p.raman@ascotworld.example" },
@@ -59,6 +60,87 @@ const BESPOKE_STAGES = [
   { sequenceNumber: 7, name: "Warehouse", failAuthority: false, isTerminalReleaseStage: false, supervised: false },
 ];
 
+/** At `daysAgo` days back, `hour:minute` — keeps the demo threads recent. */
+function at(daysAgo: number, hour: number, minute = 0): Date {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  d.setHours(hour, minute, 0, 0);
+  return d;
+}
+
+const DEMO_THREADS: {
+  title: string | null;
+  participants: string[];
+  pinnedBy?: string[];
+  /** Who hasn't seen the latest message yet — shows the unread badge. */
+  unreadFor?: string[];
+  messages: { from: string; body: string; at: Date }[];
+}[] = [
+  {
+    title: null,
+    participants: ["staff_admin", "staff_qa_1"],
+    unreadFor: ["staff_admin"],
+    messages: [
+      { from: "staff_admin", body: "Morning Aisha — what's the latest on the fill-weight investigation for AW-24121?", at: at(2, 9, 15) },
+      { from: "staff_qa_1", body: "Sampled 20 units, 3 came in under spec. Holding the batch until we've reviewed Filler F1's calibration log.", at: at(2, 9, 40) },
+      { from: "staff_admin", body: "Good call. Let me know as soon as you've got a result.", at: at(2, 9, 42) },
+      { from: "staff_qa_1", body: "Will do — should have an answer by tomorrow.", at: at(1, 14, 5) },
+    ],
+  },
+  {
+    title: "Tacrolimus line changeover",
+    participants: ["staff_admin", "staff_qa_2", "staff_prod_3"],
+    pinnedBy: ["staff_admin"],
+    unreadFor: ["staff_admin"],
+    messages: [
+      { from: "staff_prod_3", body: "Line 2 clean-down complete, changeover checklist signed off.", at: at(0, 7, 50) },
+      { from: "staff_qa_2", body: "Thanks Sam — I'll verify the API lot before we start dispensing.", at: at(0, 8, 10) },
+    ],
+  },
+  {
+    title: null,
+    participants: ["staff_prod_1", "staff_wh"],
+    messages: [
+      { from: "staff_wh", body: "Have you got space for the extra pallet of bottles for AW-24124?", at: at(3, 11, 5) },
+      { from: "staff_prod_1", body: "Yeah, warehouse bay 2 is clear — bring it over whenever.", at: at(3, 11, 20) },
+    ],
+  },
+];
+
+async function seedDemoConversations(): Promise<number> {
+  const [existing] = await db.select({ id: conversations.id }).from(conversations).limit(1);
+  if (existing) return 0; // real conversations exist — never add demo ones on top
+
+  for (const thread of DEMO_THREADS) {
+    const last = thread.messages[thread.messages.length - 1].at;
+    const [conversation] = await db
+      .insert(conversations)
+      .values({
+        title: thread.title,
+        createdBy: thread.messages[0].from,
+        lastMessageAt: last,
+        createdAt: thread.messages[0].at,
+        updatedAt: last,
+      })
+      .returning({ id: conversations.id });
+    await db.insert(messages).values(
+      thread.messages.map((m) => ({ conversationId: conversation.id, senderId: m.from, body: m.body, createdAt: m.at })),
+    );
+    await db.insert(conversationParticipants).values(
+      thread.participants.map((staffId) => {
+        const ownLast = [...thread.messages].reverse().find((m) => m.from === staffId)?.at ?? null;
+        return {
+          conversationId: conversation.id,
+          staffId,
+          lastReadAt: thread.unreadFor?.includes(staffId) ? ownLast : last,
+          pinned: thread.pinnedBy?.includes(staffId) ?? false,
+        };
+      }),
+    );
+  }
+  return DEMO_THREADS.length;
+}
+
 async function main() {
   for (const person of STAFF) {
     await db
@@ -88,7 +170,12 @@ async function main() {
       });
   }
 
-  console.log(`Seeded ${STAFF.length} staff rows, the Bespoke department, and its ${BESPOKE_STAGES.length} stages.`);
+  const threads = await seedDemoConversations();
+
+  console.log(
+    `Seeded ${STAFF.length} staff rows, the Bespoke department, its ${BESPOKE_STAGES.length} stages` +
+      (threads ? `, and ${threads} demo conversations.` : " (conversations already exist, left alone)."),
+  );
   process.exit(0);
 }
 

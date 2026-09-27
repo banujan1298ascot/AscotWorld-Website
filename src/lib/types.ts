@@ -395,6 +395,10 @@ export interface Conversation extends Entity {
    * pin it for anyone else.
    */
   pinnedBy: string[];
+  /** Newest message's text and sender, for the conversation list — filled
+   *  in by the server. */
+  preview?: string;
+  lastSenderId?: string | null;
 }
 
 export interface Message extends Entity {

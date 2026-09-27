@@ -18,6 +18,7 @@ import {
   Button,
   Card,
   EmptyState,
+  ErrorNotice,
   Field,
   Input,
   Modal,
@@ -37,7 +38,7 @@ import {
   useConversationsFor,
   useMessagesFor,
 } from "@/lib/messaging";
-import { messageCollection, staffCollection } from "@/lib/seed";
+import { staffCollection } from "@/lib/seed";
 import { useCollection } from "@/lib/storage";
 import type { Conversation, StaffMember } from "@/lib/types";
 
@@ -60,7 +61,7 @@ function MessagesView() {
   const searchParams = useSearchParams();
   const selectedId = searchParams.get("c");
 
-  const { conversations, ready } = useConversationsFor(user?.id);
+  const { conversations, ready, error } = useConversationsFor(user?.id);
   const { items: staff } = useCollection(staffCollection);
   const staffById = useMemo(() => new Map(staff.map((s) => [s.id, s])), [staff]);
 
@@ -87,6 +88,12 @@ function MessagesView() {
           </Button>
         }
       />
+
+      {error && conversations.length === 0 ? (
+        <div className="mb-4">
+          <ErrorNotice message={error} />
+        </div>
+      ) : null}
 
       {!ready ? (
         <Skeleton className="h-[32rem] w-full" />
@@ -151,15 +158,6 @@ function ConversationList({
   onSelect: (id: string) => void;
   className?: string;
 }) {
-  const { items: allMessages } = useCollection(messageCollection);
-  // Messages are append-only and created in chronological order, so the last
-  // occurrence for a conversation in this array is its most recent message.
-  const previewByConversation = useMemo(() => {
-    const map = new Map<string, string>();
-    allMessages.forEach((m) => map.set(m.conversationId, m.body));
-    return map;
-  }, [allMessages]);
-
   const pinned = conversations.filter((c) => isPinnedBy(c, currentUserId));
   const rest = conversations.filter((c) => !isPinnedBy(c, currentUserId));
 
@@ -177,7 +175,7 @@ function ConversationList({
                 currentUserId={currentUserId}
                 selectedId={selectedId}
                 onSelect={onSelect}
-                preview={previewByConversation.get(conversation.id) ?? ""}
+                preview={conversation.preview ?? ""}
               />
             ))}
             {rest.length > 0 ? <SectionLabel text="All conversations" /> : null}
@@ -191,7 +189,7 @@ function ConversationList({
             currentUserId={currentUserId}
             selectedId={selectedId}
             onSelect={onSelect}
-            preview={previewByConversation.get(conversation.id) ?? ""}
+            preview={conversation.preview ?? ""}
           />
         ))}
       </ul>
@@ -270,7 +268,7 @@ function ConversationRow({
       </button>
 
       <button
-        onClick={() => togglePinConversation(conversation.id, currentUserId)}
+        onClick={() => void togglePinConversation(conversation.id, currentUserId)}
         aria-label={pinned ? "Unpin conversation" : "Pin conversation"}
         aria-pressed={pinned}
         className={`absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 cursor-pointer place-items-center
@@ -298,13 +296,15 @@ function ThreadPanel({
   currentUserId: string;
   className?: string;
 }) {
-  const { messages } = useMessagesFor(conversation?.id);
+  const { messages } = useMessagesFor(conversation?.id, currentUserId);
   const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Mark read whenever the thread is open and up to date with new arrivals.
   useEffect(() => {
-    if (conversation) markConversationRead(conversation.id, currentUserId);
+    if (conversation) void markConversationRead(conversation.id, currentUserId).catch(() => {});
   }, [conversation, conversation?.lastMessageAt, currentUserId]);
 
   useEffect(() => {
@@ -327,12 +327,21 @@ function ThreadPanel({
     .map((id) => staffById.get(id))
     .filter((s): s is StaffMember => Boolean(s));
 
-  function handleSend(e: FormEvent) {
+  async function handleSend(e: FormEvent) {
     e.preventDefault();
     const body = draft.trim();
-    if (!body || !conversation) return;
-    sendMessage(conversation.id, currentUserId, body);
-    setDraft("");
+    if (!body || !conversation || sending) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      await sendMessage(conversation.id, currentUserId, body);
+      setDraft("");
+    } catch (err) {
+      // Keep the draft so nothing typed is lost.
+      setSendError(err instanceof Error ? err.message : "Message not sent — try again.");
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
@@ -396,6 +405,12 @@ function ThreadPanel({
         })}
       </div>
 
+      {sendError ? (
+        <div className="border-t border-[var(--border)] px-2.5 pt-2.5">
+          <ErrorNotice message={sendError} />
+        </div>
+      ) : null}
+
       {/* composer */}
       <form onSubmit={handleSend} className="flex items-center gap-2 border-t border-[var(--border)] p-2.5">
         <Input
@@ -409,9 +424,9 @@ function ThreadPanel({
           type="submit"
           variant="primary"
           icon={<PaperPlaneRight size={16} weight="fill" />}
-          disabled={!draft.trim()}
+          disabled={!draft.trim() || sending}
         >
-          Send
+          {sending ? "Sending…" : "Send"}
         </Button>
       </form>
     </Card>
@@ -473,7 +488,10 @@ function ComposeDialog({
     });
   }
 
-  function handleSend() {
+  const [sending, setSending] = useState(false);
+
+  async function handleSend() {
+    if (sending) return;
     if (mode === "dm" && selectedIds.size !== 1) {
       return setError("Choose who this is for.");
     }
@@ -482,13 +500,20 @@ function ComposeDialog({
     }
     if (!body.trim()) return setError("Write a message before sending.");
 
-    const conversation = startConversation(
-      [currentUser.id, ...selectedIds],
-      currentUser.id,
-      body,
-      mode === "group" ? groupTitle.trim() || null : null,
-    );
-    onSent(conversation.id);
+    setSending(true);
+    try {
+      const conversationId = await startConversation(
+        [currentUser.id, ...selectedIds],
+        currentUser.id,
+        body,
+        mode === "group" ? groupTitle.trim() || null : null,
+      );
+      onSent(conversationId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Message not sent — try again.");
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
@@ -500,8 +525,8 @@ function ComposeDialog({
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={handleSend}>
-            Send
+          <Button variant="primary" onClick={() => void handleSend()} disabled={sending}>
+            {sending ? "Sending…" : "Send"}
           </Button>
         </>
       }
