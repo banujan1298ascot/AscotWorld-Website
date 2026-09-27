@@ -13,11 +13,12 @@ import {
 /* ============================================================================
  * Demo data
  * ----------------------------------------------------------------------------
- * Seeded once into browser storage on first load, then owned by the user —
- * edits persist until "Reset demo data" is used.
+ * Seeded once into the shared database by the first device to open the
+ * portal against an empty one (see src/lib/storage.ts), then owned by the
+ * users — edits persist, for everyone, until an admin uses "Reset demo data".
  *
- * Dates are generated relative to today so the calendar and rota always look
- * current, whenever the portal is opened.
+ * Dates are generated relative to the day the data is seeded, so a freshly
+ * reset portal's calendar and rota look current.
  * ========================================================================= */
 
 const today = new Date();
@@ -742,8 +743,10 @@ const departmentSeed = (): DepartmentRecord[] =>
 /* Collections                                                                */
 /* -------------------------------------------------------------------------- */
 
-export const staffCollection = createCollection<StaffMember>("staff", staffSeed);
-export const departmentCollection = createCollection<DepartmentRecord>("departments", departmentSeed);
+export const staffCollection = createCollection<StaffMember>("staff", staffSeed, { provisionalSeed: true });
+export const departmentCollection = createCollection<DepartmentRecord>("departments", departmentSeed, {
+  provisionalSeed: true,
+});
 export const batchCollection = createCollection<Batch>("batches", batchSeed);
 export const taskCollection = createCollection<Task>("tasks", taskSeed);
 export const shiftCollection = createCollection<ShiftEntry>("shifts", shiftSeed);

@@ -2,8 +2,6 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { apiFetch } from "./apiClient";
-import { pushNotification } from "./notifications";
-import { staffCollection } from "./seed";
 import type { Conversation, Message, StaffMember } from "./types";
 
 /* ============================================================================
@@ -11,6 +9,8 @@ import type { Conversation, Message, StaffMember } from "./types";
  * ----------------------------------------------------------------------------
  * Conversations and messages live in the database (src/app/api/messages), not
  * in browser storage — so a message sent from a phone reaches everyone's PC.
+ * The bell notification for a new message is raised server-side when it's
+ * sent (src/server/messaging/service.ts), so it too reaches every device.
  * There's no push channel yet, so every open page re-checks on a short
  * interval, and straight away when the tab comes back into view.
  *
@@ -82,7 +82,6 @@ export async function refreshConversations(): Promise<void> {
   try {
     const { conversations } = await apiFetch<{ conversations: Conversation[] }>("/api/messages/conversations", userId);
     if (state.userId !== userId) return; // signed out or switched user meanwhile
-    notifyNewArrivals(userId, conversations);
     setState({ userId, conversations, ready: true, error: null });
   } catch (err) {
     if (state.userId !== userId) return;
@@ -125,51 +124,6 @@ function useConversationState(userId: string | undefined): ConversationState {
     () => EMPTY,
   );
   return snapshot.userId === userId ? snapshot : EMPTY;
-}
-
-/* -------------------------------------------------------------------------- */
-/* Bell notifications for incoming messages                                   */
-/* -------------------------------------------------------------------------- */
-
-const notifiedKey = (userId: string) => `ascotworld:messages-notified:${userId}`;
-
-/**
- * Raises a bell notification on *this* device for each conversation with a
- * new message from someone else. Remembers (per person, per device) the
- * newest message already announced, so a reload doesn't repeat them — and
- * the very first check on a device just records where things stand, rather
- * than announcing every old unread thread at once.
- */
-function notifyNewArrivals(userId: string, conversations: Conversation[]): void {
-  let seenUpTo: string | null = null;
-  try {
-    seenUpTo = window.localStorage.getItem(notifiedKey(userId));
-  } catch {
-    return; // no storage — skip notifications rather than repeat them forever
-  }
-  const newest = conversations.reduce((max, c) => (c.lastMessageAt > max ? c.lastMessageAt : max), seenUpTo ?? "");
-
-  if (seenUpTo !== null) {
-    const open = new URLSearchParams(window.location.search).get("c");
-    const staffById = new Map(staffCollection.all().map((s) => [s.id, s]));
-    for (const c of conversations) {
-      const fresh = c.lastMessageAt > seenUpTo && c.lastSenderId && c.lastSenderId !== userId;
-      const alreadyLooking = window.location.pathname === "/messages" && open === c.id;
-      if (!fresh || alreadyLooking || !hasUnread(c, userId)) continue;
-      pushNotification({
-        recipientId: userId,
-        type: "message",
-        title: `New message from ${staffById.get(c.lastSenderId!)?.name ?? "a colleague"}`,
-        body: c.preview ?? "",
-        href: `/messages?c=${c.id}`,
-      });
-    }
-  }
-  try {
-    if (newest) window.localStorage.setItem(notifiedKey(userId), newest);
-  } catch {
-    // Nothing to do — worst case a notification repeats after a reload.
-  }
 }
 
 /* -------------------------------------------------------------------------- */

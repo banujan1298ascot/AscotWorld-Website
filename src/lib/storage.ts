@@ -6,46 +6,87 @@ import type { Entity } from "./types";
 /* ============================================================================
  * Persistence
  * ----------------------------------------------------------------------------
- * Everything the app stores goes through `StorageAdapter`. The demo build ships
- * `localStorageAdapter`, which keeps data in the browser only.
+ * Every portal section that isn't the Batch Book, MES or messaging keeps its
+ * data in a `Collection`: Task planner, Batch schedule, Team & rota,
+ * departments and bell notifications. Collections live on the server
+ * (src/app/api/records → the `app_records` table), so every device sees the
+ * same data — they used to live in each browser's own storage, which meant a
+ * change made on a phone never reached a PC.
  *
- * TO MOVE TO A REAL DATABASE: write one object satisfying `StorageAdapter`
- * (fetch calls against your API) and assign it to `activeAdapter` below. No
- * module, page or component needs to change — they only ever touch
- * `createCollection` / `useCollection`.
+ * The API stays synchronous, so pages didn't need rewriting: a change shows
+ * immediately on the device that made it and is saved in the background;
+ * other devices pick it up on their next check, every few seconds (and
+ * straight away when a tab comes back into view). A copy is kept in browser
+ * storage purely so pages open instantly on the next visit.
  * ========================================================================= */
 
-export interface StorageAdapter {
-  read<T>(key: string): T[] | null;
-  write<T>(key: string, value: T[]): void;
+const STORAGE_PREFIX = "ascotworld:";
+const CACHE_PREFIX = `${STORAGE_PREFIX}cache:`;
+const SESSION_KEY = `${STORAGE_PREFIX}session`;
+
+/** How often an open page re-checks the collections it's showing. */
+export const SYNC_INTERVAL_MS = 5000;
+
+function sessionId(): string | null {
+  try {
+    return window.localStorage.getItem(SESSION_KEY);
+  } catch {
+    return null;
+  }
 }
 
-const STORAGE_PREFIX = "ascotworld:";
+function requestHeaders(): HeadersInit {
+  const id = sessionId();
+  return { "Content-Type": "application/json", ...(id ? { "x-staff-id": id } : {}) };
+}
 
-const localStorageAdapter: StorageAdapter = {
-  read<T>(key: string): T[] | null {
-    if (typeof window === "undefined") return null;
-    try {
-      const raw = window.localStorage.getItem(STORAGE_PREFIX + key);
-      return raw ? (JSON.parse(raw) as T[]) : null;
-    } catch {
-      // Corrupt or unreadable storage falls back to seed data rather than
-      // taking the whole portal down.
-      return null;
-    }
-  },
-  write<T>(key: string, value: T[]): void {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value));
-    } catch {
-      // Quota exceeded or private mode — the in-memory cache still holds the
-      // change for this session.
-    }
-  },
-};
+function readCache<T>(key: string): T[] | null {
+  try {
+    const raw = window.localStorage.getItem(CACHE_PREFIX + key);
+    return raw ? (JSON.parse(raw) as T[]) : null;
+  } catch {
+    return null;
+  }
+}
 
-const activeAdapter: StorageAdapter = localStorageAdapter;
+function writeCache<T>(key: string, items: readonly T[]): void {
+  try {
+    window.localStorage.setItem(CACHE_PREFIX + key, JSON.stringify(items));
+  } catch {
+    // Quota or private mode — only costs a slower first paint next time.
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Background sync — one timer for every collection currently on screen       */
+/* -------------------------------------------------------------------------- */
+
+interface Syncable {
+  refresh(force?: boolean): Promise<void>;
+  isWatched(): boolean;
+}
+
+const registry: Syncable[] = [];
+let syncStarted = false;
+
+function syncWatched(): void {
+  if (document.visibilityState !== "visible") return;
+  registry.filter((c) => c.isWatched()).forEach((c) => void c.refresh());
+}
+
+function startSync(): void {
+  if (syncStarted || typeof window === "undefined") return;
+  syncStarted = true;
+  window.setInterval(syncWatched, SYNC_INTERVAL_MS);
+  document.addEventListener("visibilitychange", syncWatched);
+  window.addEventListener("focus", syncWatched);
+}
+
+/** Re-fetch every collection now — e.g. right after signing in, when what
+ *  the server will show (your notifications) has changed. */
+export function refreshCollections(): void {
+  registry.forEach((c) => void c.refresh(true));
+}
 
 /* -------------------------------------------------------------------------- */
 /* Collections                                                                */
@@ -69,6 +110,15 @@ export interface Collection<T extends Entity> {
   reset(): void;
 }
 
+export interface CollectionOptions {
+  /**
+   * Show the sample data until the server answers, instead of a loading
+   * state — for the staff list, which sign-in needs before anything else
+   * has loaded (and which only changes when someone edits the team).
+   */
+  provisionalSeed?: boolean;
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -83,27 +133,132 @@ export function newId(prefix = "id"): string {
 export function createCollection<T extends Entity>(
   key: string,
   seed: () => T[],
+  options: CollectionOptions = {},
 ): Collection<T> {
-  let cache: readonly T[] | null = null;
+  const url = `/api/records/${key}`;
   const listeners = new Set<() => void>();
 
-  function load(): readonly T[] {
-    if (cache) return cache;
-    const stored = activeAdapter.read<T>(key);
-    if (stored) {
-      cache = stored;
-    } else {
-      const seeded = seed();
-      activeAdapter.write(key, seeded);
-      cache = seeded;
-    }
-    return cache;
+  /** Last list the server gave us; null until it has answered once. */
+  let server: T[] | null = null;
+  let version: string | null = null;
+  let versionFor: string | null = null;
+  /** Changes made here that the server hasn't confirmed yet; null = deleted. */
+  const pending = new Map<string, T | null>();
+  let view: readonly T[] | null = null;
+  let started = false;
+  let inflight: Promise<void> | null = null;
+  let seedAttempted = false;
+
+  /** Server data (or last visit's copy) with unconfirmed local changes on top. */
+  function computeView(): readonly T[] | null {
+    const base = server ?? readCache<T>(key) ?? (options.provisionalSeed ? seed() : null);
+    if (!base) return null;
+    let items = [...base];
+    pending.forEach((record, id) => {
+      const index = items.findIndex((item) => item.id === id);
+      if (record === null) items = items.filter((item) => item.id !== id);
+      else if (index === -1) items.push(record);
+      else items[index] = record;
+    });
+    return items;
   }
 
-  function commit(next: T[]): void {
-    cache = next;
-    activeAdapter.write(key, next);
+  function recompute(): void {
+    view = computeView();
     listeners.forEach((l) => l());
+  }
+
+  async function fetchOnce(): Promise<void> {
+    const session = sessionId();
+    const known = version && versionFor === session ? `?version=${encodeURIComponent(version)}` : "";
+    const res = await fetch(url + known, { headers: requestHeaders() });
+    if (!res.ok) return; // signed out, or a blip — keep what's on screen
+    const body = (await res.json()) as { version: string; unchanged?: true; items?: T[] };
+    if (body.unchanged) return;
+
+    const items = body.items ?? [];
+    if (items.length === 0 && !seedAttempted) {
+      // A fresh database: fill it with the sample data, then read it back.
+      seedAttempted = true;
+      const sample = seed();
+      if (sample.length > 0) {
+        await fetch(url, { method: "POST", headers: requestHeaders(), body: JSON.stringify({ items: sample }) });
+        version = null;
+        return fetchOnce();
+      }
+    }
+
+    server = items;
+    version = body.version;
+    versionFor = session;
+    writeCache(key, items);
+    recompute();
+  }
+
+  const syncable: Syncable = {
+    async refresh(force = false) {
+      if (typeof window === "undefined") return;
+      if (inflight) {
+        if (!force) return inflight;
+        await inflight.catch(() => {});
+      }
+      inflight = fetchOnce()
+        .catch(() => {
+          // Offline or server trouble — the next check will retry.
+        })
+        .finally(() => {
+          inflight = null;
+        });
+      return inflight;
+    },
+    isWatched: () => listeners.size > 0,
+  };
+  registry.push(syncable);
+
+  function start(): void {
+    if (started || typeof window === "undefined") return;
+    started = true;
+    // No listener call here — this can run mid-render, via getSnapshot.
+    view = computeView();
+    startSync();
+    void syncable.refresh();
+  }
+
+  function current(): readonly T[] {
+    start();
+    return view ?? (EMPTY as readonly T[]);
+  }
+
+  /** Shows the change now, saves it in the background. If the server
+   *  refuses, the change is rolled back to what the server has. */
+  function save(id: string, record: T | null): void {
+    start();
+    pending.set(id, record);
+    recompute();
+    const request =
+      record === null
+        ? fetch(`${url}/${encodeURIComponent(id)}`, { method: "DELETE", headers: requestHeaders() })
+        : fetch(`${url}/${encodeURIComponent(id)}`, {
+            method: "PUT",
+            headers: requestHeaders(),
+            body: JSON.stringify(record),
+          });
+    void request
+      .then(async (res) => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          console.error(`Couldn't save ${key}/${id}:`, body?.error ?? res.status);
+        }
+      })
+      .catch((error) => console.error(`Couldn't save ${key}/${id}:`, error))
+      .finally(async () => {
+        await syncable.refresh(true);
+        // Only clear it if nothing newer was queued for the same record.
+        if (pending.get(id) === record) {
+          pending.delete(id);
+          recompute();
+        }
+      });
   }
 
   return {
@@ -111,14 +266,15 @@ export function createCollection<T extends Entity>(
 
     subscribe(listener) {
       listeners.add(listener);
+      start();
       return () => listeners.delete(listener);
     },
 
     getSnapshot() {
-      // On the server there is no storage; the hook swaps to the real snapshot
-      // immediately after hydration.
+      // On the server there's no data yet; the hook swaps to the real
+      // snapshot straight after hydration.
       if (typeof window === "undefined") return EMPTY as readonly T[];
-      return load();
+      return current();
     },
 
     getServerSnapshot() {
@@ -126,11 +282,11 @@ export function createCollection<T extends Entity>(
     },
 
     all() {
-      return load();
+      return current();
     },
 
     find(id) {
-      return load().find((item) => item.id === id);
+      return current().find((item) => item.id === id);
     },
 
     create(input) {
@@ -141,31 +297,32 @@ export function createCollection<T extends Entity>(
         createdAt: input.createdAt ?? stamp,
         updatedAt: stamp,
       } as T;
-      commit([...load(), record]);
+      save(record.id, record);
       return record;
     },
 
     update(id, patch) {
-      const items = load();
-      const index = items.findIndex((item) => item.id === id);
-      if (index === -1) return undefined;
-      const updated = { ...items[index], ...patch, updatedAt: nowIso() } as T;
-      const next = [...items];
-      next[index] = updated;
-      commit(next);
+      const existing = current().find((item) => item.id === id);
+      if (!existing) return undefined;
+      const updated = { ...existing, ...patch, updatedAt: nowIso() } as T;
+      save(id, updated);
       return updated;
     },
 
     remove(id) {
-      commit(load().filter((item) => item.id !== id));
+      save(id, null);
     },
 
     replaceAll(items) {
-      commit(items);
+      const keep = new Set(items.map((item) => item.id));
+      current()
+        .filter((item) => !keep.has(item.id))
+        .forEach((item) => save(item.id, null));
+      items.forEach((item) => save(item.id, item));
     },
 
     reset() {
-      commit(seed());
+      this.replaceAll(seed());
     },
   };
 }
@@ -176,11 +333,11 @@ export function createCollection<T extends Entity>(
 
 /**
  * Subscribe a component to a collection. Re-renders whenever the collection
- * changes, from anywhere in the app.
+ * changes — from this device or, within a few seconds, any other.
  *
- * `ready` is false during server render and the first hydration pass, when no
- * browser storage exists yet — screens use it to show a skeleton rather than
- * flashing an incorrect empty state.
+ * `ready` is false until there's something real to show (the server's
+ * answer, or this browser's copy from last time) — screens use it to show a
+ * skeleton rather than flashing an incorrect empty state.
  */
 export function useCollection<T extends Entity>(
   collection: Collection<T>,
@@ -199,22 +356,51 @@ export function useCollection<T extends Entity>(
   return { items, ready: items !== (EMPTY as readonly T[]) };
 }
 
-/**
- * Wipe every portal collection — used by the "Reset demo data" control.
- *
- * Session and theme live under the same prefix but are user state rather than
- * demo content, so they are preserved: resetting the data should not sign
- * someone out or flip them back to light mode.
- */
-const PRESERVED_KEYS = new Set([`${STORAGE_PREFIX}session`, `${STORAGE_PREFIX}theme`]);
+/* -------------------------------------------------------------------------- */
+/* Housekeeping                                                               */
+/* -------------------------------------------------------------------------- */
 
-export function resetAllDemoData(): void {
-  if (typeof window === "undefined") return;
-  const keys: string[] = [];
-  for (let i = 0; i < window.localStorage.length; i += 1) {
-    const k = window.localStorage.key(i);
-    if (k?.startsWith(STORAGE_PREFIX) && !PRESERVED_KEYS.has(k)) keys.push(k);
+/** Browser-only copies from before collections moved to the server. They're
+ *  never read any more; clearing them just stops them looking like data. */
+const LEGACY_KEYS = [
+  "staff",
+  "departments",
+  "batches",
+  "tasks",
+  "shifts",
+  "notifications",
+  "conversations",
+  "messages",
+].map((k) => STORAGE_PREFIX + k);
+
+if (typeof window !== "undefined") {
+  try {
+    LEGACY_KEYS.forEach((k) => window.localStorage.removeItem(k));
+  } catch {
+    // Storage unavailable — nothing to clear.
   }
-  keys.forEach((k) => window.localStorage.removeItem(k));
+}
+
+/**
+ * Reset the shared sample data — used by the "Reset demo data" control.
+ * Since the data is shared, this resets it for everyone, so the server only
+ * lets an admin do it. Throws with the server's reason if refused.
+ */
+export async function resetAllDemoData(): Promise<void> {
+  const res = await fetch("/api/records/reset", { method: "POST", headers: requestHeaders() });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body?.error === "string" ? body.error : `Reset failed (${res.status}).`);
+  }
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const k = window.localStorage.key(i);
+      if (k?.startsWith(CACHE_PREFIX)) keys.push(k);
+    }
+    keys.forEach((k) => window.localStorage.removeItem(k));
+  } catch {
+    // Cached copies will be replaced on the next check anyway.
+  }
   window.location.reload();
 }

@@ -310,23 +310,29 @@ function UserPanel({ user, onSignOut }: { user: StaffMember; onSignOut: () => vo
       </div>
 
       <div className="mt-1 grid gap-0.5">
-        <button
-          onClick={() => {
-            if (
-              window.confirm(
-                "Reset all demo data?\n\nThis clears every task, batch and rota change back to the original sample data. It cannot be undone.",
-              )
-            ) {
-              resetAllDemoData();
-            }
-          }}
-          className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[12px]
-            font-semibold text-[var(--muted-foreground)] transition-colors duration-150
-            hover:bg-[var(--surface-sunken)] hover:text-foreground"
-        >
-          <ArrowClockwise size={15} weight="bold" />
-          Reset demo data
-        </button>
+        {/* The sample data is shared by everyone now, so resetting it is an
+            admin's call — the server refuses anyone else too. */}
+        {user.role === "admin" ? (
+          <button
+            onClick={() => {
+              if (
+                window.confirm(
+                  "Reset all demo data for everyone?\n\nThis puts every task, schedule batch, rota and team change — on every device — back to the original sample data. It cannot be undone.",
+                )
+              ) {
+                resetAllDemoData().catch((err: unknown) =>
+                  window.alert(err instanceof Error ? err.message : "Reset failed."),
+                );
+              }
+            }}
+            className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[12px]
+              font-semibold text-[var(--muted-foreground)] transition-colors duration-150
+              hover:bg-[var(--surface-sunken)] hover:text-foreground"
+          >
+            <ArrowClockwise size={15} weight="bold" />
+            Reset demo data
+          </button>
+        ) : null}
 
         {/* Sign out is kept visually separate from navigation. */}
         <button

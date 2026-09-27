@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { staffCollection } from "./seed";
+import { refreshCollections, useCollection } from "./storage";
 import { roleCan, type Capability, type StaffMember } from "./types";
 
 /* ============================================================================
@@ -57,6 +58,9 @@ function writeSession(id: string | null): void {
     // Storage unavailable — nothing more we can do in a demo build.
   }
   sessionListeners.forEach((l) => l());
+  // What the server shows depends on who's asking (your notifications), so
+  // re-read everything as the new person rather than waiting for the next check.
+  refreshCollections();
 }
 
 /**
@@ -97,10 +101,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
   const ready = useIsHydrated();
 
+  // Subscribed, not a one-off lookup: the staff list now comes from the
+  // server, so the signed-in person's record can arrive (or change — a new
+  // role, say) after this first renders.
+  const { items: staff } = useCollection(staffCollection);
   const user = useMemo(() => {
     if (!userId) return null;
-    return staffCollection.find(userId) ?? null;
-  }, [userId]);
+    return staff.find((s) => s.id === userId) ?? null;
+  }, [userId, staff]);
 
   const signIn = useCallback<AuthValue["signIn"]>((email, password) => {
     const match = staffCollection

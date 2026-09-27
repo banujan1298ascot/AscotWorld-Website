@@ -42,11 +42,9 @@ re-check: the conversation list every 4s, an open thread every 3s, and
 immediately when the tab comes back into view. One shared poller serves
 both the Messages page and the nav badge (`src/lib/messaging.ts`).
 
-A bell notification for a new message is raised on the **recipient's**
-device when that check spots it — each device remembers the newest message
-it has already announced, so a reload doesn't repeat them, and the first
-check on a new device just records where things stand rather than
-announcing every old unread thread.
+A bell notification for a new message is raised on the server when it's
+sent (`notifyOthers` in `src/server/messaging/service.ts`), into the shared
+notifications collection — so it reaches every device the recipient uses.
 
 ## Demo data
 

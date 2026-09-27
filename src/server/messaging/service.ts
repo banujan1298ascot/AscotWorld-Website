@@ -9,7 +9,8 @@
 import { and, eq, sql } from "drizzle-orm";
 import { ApiError } from "../apiError";
 import { db } from "../db/client";
-import { conversationParticipants, conversations, messages } from "../db/schema";
+import { conversationParticipants, conversations, messages, staff } from "../db/schema";
+import { notify } from "../records/service";
 import { checkMessageBody, checkNewConversation, isDirectMessage } from "./validation";
 
 /** Shape the client works with — see src/lib/types.ts `Conversation`. */
@@ -134,7 +135,7 @@ export async function sendMessage(conversationId: string, senderId: string, rawB
   if (!body.ok) throw new ApiError(422, body.error);
   await requireParticipant(conversationId, senderId);
 
-  return db.transaction(async (tx) => {
+  const record = await db.transaction(async (tx) => {
     const [message] = await tx.insert(messages).values({ conversationId, senderId, body: body.value }).returning();
     await tx
       .update(conversations)
@@ -153,6 +154,38 @@ export async function sendMessage(conversationId: string, senderId: string, rawB
       updatedAt: iso(message.createdAt),
     };
   });
+  await notifyOthers(conversationId, senderId, record.body);
+  return record;
+}
+
+/**
+ * Bell notification for everyone else in the conversation — raised here, on
+ * the server, so it reaches every device they use. A failure only costs the
+ * notification; the message itself is already saved.
+ */
+async function notifyOthers(conversationId: string, senderId: string, body: string): Promise<void> {
+  try {
+    const [sender] = await db.select({ name: staff.name }).from(staff).where(eq(staff.id, senderId)).limit(1);
+    const recipients = await db
+      .select({ staffId: conversationParticipants.staffId })
+      .from(conversationParticipants)
+      .where(eq(conversationParticipants.conversationId, conversationId));
+    await Promise.all(
+      recipients
+        .filter((r) => r.staffId !== senderId)
+        .map((r) =>
+          notify({
+            recipientId: r.staffId,
+            type: "message",
+            title: `New message from ${sender?.name ?? "a colleague"}`,
+            body: body.length > 140 ? `${body.slice(0, 139)}…` : body,
+            href: `/messages?c=${conversationId}`,
+          }),
+        ),
+    );
+  } catch (error) {
+    console.warn("Couldn't raise message notifications:", error);
+  }
 }
 
 /**
@@ -186,7 +219,7 @@ export async function startConversation(
     }
   }
 
-  return db.transaction(async (tx) => {
+  const created = await db.transaction(async (tx) => {
     const [conversation] = await tx
       .insert(conversations)
       .values({ title: request.title, createdBy: creatorId })
@@ -208,6 +241,8 @@ export async function startConversation(
     );
     return { conversationId: conversation.id };
   });
+  await notifyOthers(created.conversationId, creatorId, request.body);
+  return created;
 }
 
 /** Marks the thread read for `staffId` up to its newest message. */

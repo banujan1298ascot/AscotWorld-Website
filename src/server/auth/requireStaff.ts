@@ -47,3 +47,9 @@ export function requireCapability(staffMember: ActingStaff, capability: Capabili
     throw new ApiError(403, `Your role cannot perform this action (${capability}).`);
   }
 }
+
+/** Like requireStaff, but a request with no staff id at all is anonymous
+ *  (null) rather than an error — for the few reads allowed before sign-in. */
+export async function optionalStaff(request: NextRequest): Promise<ActingStaff | null> {
+  return getStaffId(request) ? requireStaff(request) : null;
+}
