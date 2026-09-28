@@ -287,7 +287,7 @@ function TopBar({
           aria-label="Sign out"
           className="grid h-9 w-9 cursor-pointer place-items-center rounded-md text-[var(--muted-foreground)]
             transition-[background-color,color,transform,box-shadow] duration-200
-            hover:-translate-y-0.5 hover:bg-[var(--surface-sunken)] hover:text-foreground hover:shadow-[var(--shadow-glow)] lg:hidden"
+            hover:-translate-y-0.5 hover:bg-[var(--surface-sunken)] hover:text-foreground hover:shadow-[var(--shadow-glow)]"
         >
           <SignOut size={17} weight="bold" />
         </button>
