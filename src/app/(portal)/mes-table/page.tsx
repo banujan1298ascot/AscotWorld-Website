@@ -1,0 +1,588 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { formatDistanceToNow } from "date-fns";
+import { ArrowsLeftRight, Flask, MagnifyingGlass } from "@phosphor-icons/react/dist/ssr";
+import {
+  Button,
+  Card,
+  EmptyState,
+  ErrorNotice,
+  FilterSelect,
+  Input,
+  Modal,
+  PageHeader,
+  PermissionNotice,
+  Skeleton,
+  Textarea,
+} from "@/components/ui";
+import { useAuth } from "@/lib/auth";
+import { useDepartments, type BatchRecord } from "@/lib/batchBook";
+import { useAllStageQueues, useStages, type StageDefinition } from "@/lib/mes";
+import { staffCollection } from "@/lib/seed";
+import { useCollection } from "@/lib/storage";
+import { roleCan, type StaffMember } from "@/lib/types";
+
+/* ============================================================================
+ * MES — table view (trial)
+ * ----------------------------------------------------------------------------
+ * The same pipeline as the MES board, laid out like the Batch Book: one row
+ * per batch across every station, with "Assigned to" and "Status" editable
+ * in place instead of dragging cards between columns. It uses the same live
+ * data and the same server rules as the board, so the two can be trialled
+ * side by side — a batch moved here is moved there too.
+ * ========================================================================= */
+
+type RowState = "waiting" | "returned" | "in_progress";
+
+interface Row {
+  batch: BatchRecord;
+  stage: StageDefinition;
+  state: RowState;
+  operatorId: string | null;
+  operatorName: string | null;
+  /** When it arrived at this station, or when it was started. */
+  since: string;
+}
+
+type Change =
+  | { kind: "start"; row: Row }
+  | { kind: "assign"; row: Row; operatorId: string }
+  | { kind: "reassign"; row: Row; operatorId: string }
+  | { kind: "forward"; row: Row }
+  | { kind: "send-back"; row: Row }
+  | { kind: "fail"; row: Row };
+
+const STATE_META: Record<RowState, { label: string; tone: string; order: number }> = {
+  in_progress: { label: "In progress", tone: "var(--status-production)", order: 0 },
+  returned: { label: "Returned — rework", tone: "var(--warning)", order: 1 },
+  waiting: { label: "Waiting to start", tone: "var(--status-scheduled)", order: 2 },
+};
+
+const label = (batch: BatchRecord) => batch.batchNumber ?? "Draft batch";
+
+export default function MesTablePage() {
+  const { user, can } = useAuth();
+  const { items: staff } = useCollection(staffCollection);
+  const { departments, ready: departmentsReady, error: departmentsError } = useDepartments();
+  const departmentId = departments[0]?.id;
+  const { stages, ready: stagesReady, error: stagesError } = useStages(departmentId);
+
+  // Same visibility rule as the board: a station account sees its own
+  // station only; everyone else sees Check 2 through Warehouse.
+  const boardStages = useMemo(() => stages.filter((s) => s.sequenceNumber >= 2), [stages]);
+  const pinnedStage = user?.mesStage ?? null;
+  const visibleStages = useMemo(
+    () => (pinnedStage === null ? boardStages : boardStages.filter((s) => s.sequenceNumber === pinnedStage)),
+    [boardStages, pinnedStage],
+  );
+  const stageIds = useMemo(() => visibleStages.map((s) => s.id), [visibleStages]);
+  const pipeline = useAllStageQueues(stageIds);
+
+  const [stationFilter, setStationFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | RowState>("all");
+  const [search, setSearch] = useState("");
+  const [change, setChange] = useState<Change | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const rows = useMemo<Row[]>(() => {
+    const out: Row[] = [];
+    for (const queue of pipeline.queues ?? []) {
+      for (const batch of queue.incoming) {
+        out.push({ batch, stage: queue.stage, state: "waiting", operatorId: null, operatorName: null, since: batch.updatedAt });
+      }
+      for (const batch of queue.returned) {
+        out.push({ batch, stage: queue.stage, state: "returned", operatorId: null, operatorName: null, since: batch.updatedAt });
+      }
+      for (const entry of queue.inProgress) {
+        out.push({
+          batch: entry.batch,
+          stage: queue.stage,
+          state: "in_progress",
+          operatorId: entry.operatorId,
+          operatorName: entry.operatorName,
+          since: entry.receivedAt,
+        });
+      }
+    }
+    return out.sort(
+      (a, b) =>
+        a.stage.sequenceNumber - b.stage.sequenceNumber ||
+        STATE_META[a.state].order - STATE_META[b.state].order ||
+        a.since.localeCompare(b.since),
+    );
+  }, [pipeline.queues]);
+
+  const query = search.trim().toLowerCase();
+  const shown = rows.filter(
+    (row) =>
+      (stationFilter === "all" || row.stage.id === stationFilter) &&
+      (statusFilter === "all" || row.state === statusFilter) &&
+      (!query ||
+        label(row.batch).toLowerCase().includes(query) ||
+        (row.batch.productName ?? "").toLowerCase().includes(query) ||
+        (row.operatorName ?? "").toLowerCase().includes(query)),
+  );
+
+  const stageBySequence = (n: number) => boardStages.find((s) => s.sequenceNumber === n);
+
+  if (!user) return null;
+  if (!can("mes.claim") && !can("dashboard.view")) {
+    return (
+      <>
+        <PageHeader title="MES — table view" />
+        <PermissionNotice message="Your role doesn't have access to the MES pipeline." />
+      </>
+    );
+  }
+
+  const mayOperate = can("mes.claim");
+  /** Who may move an in-progress batch on — its holder, or anyone running a
+   *  supervised station (the board's rule, enforced again by the server). */
+  const canAct = (row: Row) =>
+    mayOperate && row.state === "in_progress" && (row.operatorId === user.id || row.stage.supervised);
+
+  /** Pinned to the row's station, or floating — same list the board offers. */
+  const operatorsFor = (stage: StageDefinition): StaffMember[] =>
+    staff
+      .filter((s) => roleCan(s.role, "mes.claim"))
+      .filter((s) => s.mesStage == null || s.mesStage === stage.sequenceNumber)
+      .sort((a, b) => Number(a.mesStage == null) - Number(b.mesStage == null) || a.name.localeCompare(b.name));
+
+  async function apply(current: Change, reason: string) {
+    const { row } = current;
+    const s = row.stage.id;
+    const b = row.batch.id;
+    // Send back and Fail need the batch in someone's hands first — as on the
+    // board, picking it up and rejecting it is one step for a waiting batch.
+    const ensureStarted = async () => {
+      if (row.state !== "in_progress") await pipeline.claim(s, b);
+    };
+    switch (current.kind) {
+      case "start":
+        return pipeline.claim(s, b);
+      case "assign":
+        return pipeline.claim(s, b, current.operatorId);
+      case "reassign":
+        return pipeline.reassign(s, b, current.operatorId);
+      case "forward":
+        return pipeline.forward(s, b);
+      case "send-back":
+        await ensureStarted();
+        return pipeline.sendBack(s, b, reason);
+      case "fail":
+        await ensureStarted();
+        return pipeline.fail(s, b, reason);
+    }
+  }
+
+  const ready = departmentsReady && (!departmentId || stagesReady) && (stageIds.length === 0 || pipeline.ready);
+  const loadError = departmentsError ?? stagesError ?? pipeline.error;
+
+  return (
+    <>
+      <PageHeader
+        title="MES — table view"
+        description="Every batch in the pipeline in one table. Change who it's assigned to or its status right in the row."
+        actions={
+          <Link href="/mes">
+            <Button size="sm" variant="secondary">
+              <ArrowsLeftRight size={15} weight="bold" />
+              Switch to board view
+            </Button>
+          </Link>
+        }
+      />
+
+      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--brand-200)] bg-[var(--brand-50)] px-4 py-2.5 text-[13px] text-[var(--brand-700)]">
+        <Flask size={16} weight="bold" className="shrink-0" />
+        <span>
+          <strong>Trial layout.</strong> Same live batches and rules as the MES board — anything you change here shows
+          there too, so you can try both and compare.
+        </span>
+      </div>
+
+      {pinnedStage !== null && visibleStages[0] ? (
+        <p className="mb-3 text-xs font-semibold text-[var(--muted-foreground)]">
+          Station {visibleStages[0].sequenceNumber} · {visibleStages[0].name} — you only see this station&apos;s work.
+        </p>
+      ) : null}
+
+      {loadError ? (
+        <div className="mb-4">
+          <ErrorNotice message={loadError} />
+        </div>
+      ) : null}
+
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        {pinnedStage === null ? (
+          <FilterSelect
+            label="Station"
+            value={stationFilter}
+            onChange={setStationFilter}
+            options={[
+              { value: "all", label: "All stations" },
+              ...visibleStages.map((s) => ({ value: s.id, label: `${s.sequenceNumber}. ${s.name}` })),
+            ]}
+          />
+        ) : null}
+        <FilterSelect
+          label="Status"
+          value={statusFilter}
+          onChange={(v) => setStatusFilter(v as "all" | RowState)}
+          options={[
+            { value: "all", label: "Any" },
+            { value: "waiting", label: "Waiting to start" },
+            { value: "returned", label: "Returned — rework" },
+            { value: "in_progress", label: "In progress" },
+          ]}
+        />
+        <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
+          <MagnifyingGlass
+            size={15}
+            weight="bold"
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--subtle-foreground)]"
+          />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Batch, product or operator…"
+            aria-label="Search batches"
+            className="h-8 pl-8 text-[13px]"
+          />
+        </div>
+        <span className="ml-auto text-xs font-semibold text-[var(--muted-foreground)]">
+          {shown.length} of {rows.length} batches
+        </span>
+      </div>
+
+      {!ready ? (
+        <Skeleton className="h-96 w-full" />
+      ) : (
+        <Card padded={false} className="overflow-hidden">
+          {shown.length === 0 ? (
+            <div className="p-4">
+              <EmptyState
+                title={rows.length === 0 ? "Nothing in the pipeline" : "No batches match"}
+                description={
+                  rows.length === 0
+                    ? "Batches appear here once they're confirmed in the Batch Book."
+                    : "Try a different station, status or search."
+                }
+              />
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[980px] text-sm">
+                <thead>
+                  <tr className="border-b border-[var(--border)] text-left text-xs font-bold uppercase tracking-wide text-[var(--muted-foreground)]">
+                    <th className="px-4 py-2.5">Batch number</th>
+                    <th className="px-4 py-2.5">Product</th>
+                    <th className="px-4 py-2.5">Quantity</th>
+                    <th className="px-4 py-2.5">Station</th>
+                    <th className="px-4 py-2.5">Assigned to</th>
+                    <th className="px-4 py-2.5">Status</th>
+                    <th className="px-4 py-2.5">Since</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shown.map((row) => (
+                    <TableRow
+                      key={`${row.stage.id}-${row.batch.id}`}
+                      row={row}
+                      pending={change?.row.batch.id === row.batch.id}
+                      operators={operatorsFor(row.stage)}
+                      mayOperate={mayOperate}
+                      canAct={canAct(row)}
+                      nextStage={stageBySequence(row.stage.sequenceNumber + 1)}
+                      previousStage={row.stage.sequenceNumber >= 3 ? stageBySequence(row.stage.sequenceNumber - 1) : undefined}
+                      onChange={(next) => {
+                        setActionError(null);
+                        setChange(next);
+                      }}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {change ? (
+        <ConfirmChange
+          change={change}
+          staffById={new Map(staff.map((s) => [s.id, s]))}
+          nextStage={stageBySequence(change.row.stage.sequenceNumber + 1)}
+          previousStage={stageBySequence(change.row.stage.sequenceNumber - 1)}
+          error={actionError}
+          onCancel={() => {
+            setChange(null);
+            setActionError(null);
+          }}
+          onConfirm={async (reason) => {
+            setActionError(null);
+            try {
+              await apply(change, reason);
+              setChange(null);
+            } catch (err) {
+              setActionError(err instanceof Error ? err.message : "That change didn't go through.");
+            }
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Row                                                                        */
+/* -------------------------------------------------------------------------- */
+
+const CELL_SELECT = `h-9 w-full min-w-[11rem] cursor-pointer rounded-md border border-[var(--border-strong)] bg-[var(--surface)]
+  pl-7 pr-2 text-[13px] font-semibold text-foreground disabled:cursor-not-allowed disabled:opacity-70`;
+
+function TableRow({
+  row,
+  pending,
+  operators,
+  mayOperate,
+  canAct,
+  nextStage,
+  previousStage,
+  onChange,
+}: {
+  row: Row;
+  pending: boolean;
+  operators: StaffMember[];
+  mayOperate: boolean;
+  canAct: boolean;
+  nextStage: StageDefinition | undefined;
+  previousStage: StageDefinition | undefined;
+  onChange: (change: Change) => void;
+}) {
+  const { batch, stage, state } = row;
+  const waiting = state !== "in_progress";
+  const meta = STATE_META[state];
+
+  // The holder may not be on this station's usual list (an admin who claimed
+  // it themselves, say) — keep them selectable so the cell shows who it is.
+  const operatorOptions =
+    row.operatorId && !operators.some((o) => o.id === row.operatorId)
+      ? [{ id: row.operatorId, name: row.operatorName ?? "Unknown" }, ...operators]
+      : operators;
+
+  const operatorLocked = !mayOperate || (!waiting && !canAct);
+  const statusLocked = !mayOperate || (!waiting && !canAct);
+  const lockReason = !mayOperate
+    ? "Your role can't change batches."
+    : !waiting && !canAct
+      ? `Only ${row.operatorName ?? "the operator"} can change this — it's assigned to them.`
+      : undefined;
+
+  const forwardLabel = nextStage ? `Done → send to ${nextStage.name}` : "Done → complete (leaves the pipeline)";
+
+  return (
+    <tr
+      className={`border-b border-[var(--border)] transition-colors last:border-0 ${
+        pending ? "bg-[var(--brand-50)]" : "hover:bg-[var(--surface-sunken)]"
+      }`}
+    >
+      <td className="px-4 py-2 font-mono text-[13px] font-semibold">{label(batch)}</td>
+      <td className="px-4 py-2">{batch.productName ?? "—"}</td>
+      <td className="px-4 py-2 tabular-nums text-[var(--muted-foreground)]">
+        {batch.quantity ? `${Number(batch.quantity).toLocaleString()} ${batch.unit ?? ""}` : "—"}
+      </td>
+      <td className="px-4 py-2">
+        <span className="font-semibold">
+          <span className="text-[var(--muted-foreground)]">{stage.sequenceNumber}.</span> {stage.name}
+        </span>
+      </td>
+
+      {/* Assigned to — picking someone for a waiting batch starts it with
+          them; changing it on a started one hands it over. */}
+      <td className="px-4 py-2" title={operatorLocked ? lockReason : undefined}>
+        <div className="relative">
+          <span
+            className="pointer-events-none absolute left-2.5 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full"
+            style={{ background: row.operatorId ? "var(--primary)" : "var(--border-strong)" }}
+            aria-hidden="true"
+          />
+          <select
+            aria-label={`Assigned operator for ${label(batch)}`}
+            value={row.operatorId ?? ""}
+            disabled={operatorLocked}
+            onChange={(e) => {
+              const operatorId = e.target.value;
+              if (!operatorId) return;
+              onChange(waiting ? { kind: "assign", row, operatorId } : { kind: "reassign", row, operatorId });
+            }}
+            className={CELL_SELECT}
+          >
+            {waiting ? <option value="">Unassigned</option> : null}
+            {operatorOptions.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </td>
+
+      {/* Status — the current state, plus whatever this batch can do next. */}
+      <td className="px-4 py-2" title={statusLocked ? lockReason : undefined}>
+        <div className="relative">
+          <span
+            className="pointer-events-none absolute left-2.5 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full"
+            style={{ background: meta.tone }}
+            aria-hidden="true"
+          />
+          <select
+            aria-label={`Status of ${label(batch)}`}
+            value="current"
+            disabled={statusLocked}
+            onChange={(e) => {
+              const action = e.target.value;
+              if (action === "start") onChange({ kind: "start", row });
+              else if (action === "forward") onChange({ kind: "forward", row });
+              else if (action === "send-back") onChange({ kind: "send-back", row });
+              else if (action === "fail") onChange({ kind: "fail", row });
+            }}
+            className={CELL_SELECT}
+            style={{ color: meta.tone }}
+          >
+            <option value="current">{meta.label}</option>
+            {waiting ? <option value="start">In progress (start it myself)</option> : null}
+            {!waiting ? <option value="forward">{forwardLabel}</option> : null}
+            {previousStage ? <option value="send-back">Send back to {previousStage.name}…</option> : null}
+            {stage.failAuthority ? <option value="fail">Fail batch…</option> : null}
+          </select>
+        </div>
+      </td>
+
+      <td className="whitespace-nowrap px-4 py-2 text-xs text-[var(--muted-foreground)]">
+        {formatDistanceToNow(new Date(row.since), { addSuffix: true })}
+      </td>
+    </tr>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Confirmation — every change asks first; send back and fail need a reason   */
+/* -------------------------------------------------------------------------- */
+
+function ConfirmChange({
+  change,
+  staffById,
+  nextStage,
+  previousStage,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  change: Change;
+  staffById: Map<string, StaffMember>;
+  nextStage: StageDefinition | undefined;
+  previousStage: StageDefinition | undefined;
+  error: string | null;
+  onCancel: () => void;
+  onConfirm: (reason: string) => Promise<void>;
+}) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const { row } = change;
+  const batch = label(row.batch);
+  const needsReason = change.kind === "send-back" || change.kind === "fail";
+  const name = (id: string) => staffById.get(id)?.name ?? "that operator";
+
+  const copy: Record<Change["kind"], { title: string; body: string; confirm: string }> = {
+    start: {
+      title: `Start ${batch}?`,
+      body: `It moves to In progress at ${row.stage.name}, assigned to you.`,
+      confirm: "Start it",
+    },
+    assign: {
+      title: `Assign ${batch}?`,
+      body: `${change.kind === "assign" ? name(change.operatorId) : ""} takes it on at ${row.stage.name}, and it moves to In progress.`,
+      confirm: "Assign",
+    },
+    reassign: {
+      title: `Hand ${batch} over?`,
+      body: `From ${row.operatorName ?? "its current operator"} to ${change.kind === "reassign" ? name(change.operatorId) : ""}.`,
+      confirm: "Hand over",
+    },
+    forward: {
+      title: `Mark ${batch} done at ${row.stage.name}?`,
+      body: nextStage
+        ? `It goes to ${nextStage.name}'s incoming queue.`
+        : "This is the last station, so the batch is completed and leaves the pipeline.",
+      confirm: nextStage ? `Send to ${nextStage.name}` : "Complete batch",
+    },
+    "send-back": {
+      title: `Send ${batch} back?`,
+      body: `It returns to ${previousStage?.name ?? "the previous station"} for rework. Say what needs fixing.`,
+      confirm: "Send back",
+    },
+    fail: {
+      title: `Fail ${batch}?`,
+      body: "This ends the batch's journey for good and flags it for investigation. Making the product again needs a new batch number.",
+      confirm: "Fail batch",
+    },
+  };
+  const text = copy[change.kind];
+
+  return (
+    <Modal
+      open
+      onClose={onCancel}
+      title={text.title}
+      description={text.body}
+      footer={
+        <>
+          <Button onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            variant={change.kind === "fail" ? "danger" : "primary"}
+            disabled={busy || (needsReason && !reason.trim())}
+            onClick={async () => {
+              setBusy(true);
+              await onConfirm(reason.trim());
+              setBusy(false);
+            }}
+          >
+            {busy ? "Saving…" : text.confirm}
+          </Button>
+        </>
+      }
+    >
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-lg bg-[var(--surface-sunken)] px-3 py-2.5 text-[13px]">
+        <dt className="text-[var(--muted-foreground)]">Batch</dt>
+        <dd className="font-mono font-semibold">{batch}</dd>
+        <dt className="text-[var(--muted-foreground)]">Product</dt>
+        <dd>{row.batch.productName ?? "—"}</dd>
+        <dt className="text-[var(--muted-foreground)]">Station</dt>
+        <dd>
+          {row.stage.sequenceNumber}. {row.stage.name}
+        </dd>
+      </dl>
+      {needsReason ? (
+        <Textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder={change.kind === "fail" ? "Why is it failing?" : "What needs fixing?"}
+          aria-label="Reason"
+          rows={3}
+          autoFocus
+          className="mt-3 w-full"
+        />
+      ) : null}
+      {error ? (
+        <div className="mt-3">
+          <ErrorNotice message={error} />
+        </div>
+      ) : null}
+    </Modal>
+  );
+}

@@ -156,6 +156,47 @@ export async function claimBatch(
   });
 }
 
+/**
+ * Hands a batch that's already in progress to a different operator — the
+ * table view's editable "Assigned to" column. The same people who may move
+ * it on may reassign it: its current holder, or anyone running a supervised
+ * station. The new operator is held to the usual one-batch-at-a-time rule.
+ */
+export async function reassignBatch(
+  stageId: string,
+  batchId: string,
+  actingStaff: ActingStaff,
+  newOperatorId: string,
+): Promise<StageTransitionRow> {
+  const permission = canClaim(actingStaff);
+  if (!permission.ok) throw new ApiError(403, permission.error);
+
+  return db.transaction(async (tx) => {
+    const [assignee] = await tx.select().from(staff).where(eq(staff.id, newOperatorId)).limit(1);
+    if (!assignee) throw new ApiError(422, "That operator doesn't exist.");
+
+    const stage = await requireStage(tx, stageId);
+    const openTransition = await requireOpenTransition(tx, stageId, batchId);
+    const ownership = canActOnTransition(actingStaff, openTransition, stage);
+    if (!ownership.ok) throw new ApiError(403, ownership.error);
+    if (openTransition!.operatorId === newOperatorId) return openTransition!;
+
+    try {
+      const [transition] = await tx
+        .update(stageTransitions)
+        .set({ operatorId: newOperatorId, updatedAt: new Date() })
+        .where(eq(stageTransitions.id, openTransition!.id))
+        .returning();
+      return transition;
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new ApiError(409, "That operator already has another batch in progress — they need to finish or return it first.");
+      }
+      throw err;
+    }
+  });
+}
+
 export async function forwardBatch(stageId: string, batchId: string, actingStaff: ActingStaff): Promise<BatchRecordRow> {
   return db.transaction(async (tx) => {
     const [batch] = await tx.select().from(batchRecords).where(eq(batchRecords.id, batchId)).limit(1).for("update");

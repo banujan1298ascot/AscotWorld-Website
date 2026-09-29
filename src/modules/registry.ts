@@ -7,6 +7,7 @@ import {
   Flask,
   ListChecks,
   SquaresFour,
+  Table,
   UsersThree,
 } from "@phosphor-icons/react/dist/ssr";
 // Type-only import from the package root — erased at compile time, so it does
@@ -139,6 +140,19 @@ export const MODULES: PortalModule[] = [
     order: 4,
     enabled: true,
     showOnDashboard: true,
+    showInBottomNav: false,
+  },
+  {
+    id: "mes-table",
+    label: "MES table (trial)",
+    description: "The MES pipeline as one editable table — a trial layout to compare with the board.",
+    href: "/mes-table",
+    icon: Table,
+    roles: "all",
+    group: "operations",
+    order: 4.5,
+    enabled: true,
+    showOnDashboard: false,
     showInBottomNav: false,
   },
   {

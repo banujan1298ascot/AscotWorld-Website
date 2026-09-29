@@ -170,3 +170,83 @@ export function useStageQueue(stageId: string | undefined, pollIntervalMs: numbe
 
   return { queue, ready: queue !== null || error !== null, error, refresh, claim, forward, sendBack, fail };
 }
+
+/**
+ * Every given stage's queue at once, for the table view — which lists all
+ * batches across the pipeline in one place rather than one stage's board at
+ * a time. Same polling as the board, and the same endpoints for actions, so
+ * the two views are always working on the same live data.
+ */
+export function useAllStageQueues(stageIds: string[], pollIntervalMs: number = STAGE_QUEUE_POLL_MS) {
+  const { user } = useAuth();
+  const [queues, setQueues] = useState<StageQueue[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const key = stageIds.join(",");
+
+  const load = useCallback(async (): Promise<StageQueue[] | { error: string } | null> => {
+    if (!user || !key) return null;
+    try {
+      return await Promise.all(
+        key
+          .split(",")
+          .map((id) => apiFetch<{ queue: StageQueue }>(`/api/mes/stages/${id}/queue`, user.id).then((r) => r.queue)),
+      );
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "Failed to load the pipeline." };
+    }
+  }, [user, key]);
+
+  const refresh = useCallback(async () => {
+    const result = await load();
+    if (!result) return;
+    if ("error" in result) setError(result.error);
+    else {
+      setQueues(result);
+      setError(null);
+    }
+  }, [load]);
+
+  useEffect(() => {
+    let ignore = false;
+    load().then((result) => {
+      if (ignore || !result) return;
+      if ("error" in result) setError(result.error);
+      else {
+        setQueues(result);
+        setError(null);
+      }
+    });
+    if (pollIntervalMs <= 0) return () => void (ignore = true);
+    // A failed poll keeps the table as it was; the next one retries.
+    const id = setInterval(() => {
+      load().then((result) => {
+        if (!ignore && result && !("error" in result)) setQueues(result);
+      });
+    }, pollIntervalMs);
+    return () => {
+      ignore = true;
+      clearInterval(id);
+    };
+  }, [load, pollIntervalMs]);
+
+  async function act(path: string, body?: unknown): Promise<void> {
+    if (!user) throw new Error("Not signed in.");
+    await apiFetch(path, user.id, { method: "POST", body: JSON.stringify(body ?? {}) });
+    await refresh();
+  }
+  const base = (stageId: string, batchId: string) => `/api/mes/stages/${stageId}/batches/${batchId}`;
+
+  return {
+    queues,
+    ready: queues !== null || error !== null,
+    error,
+    refresh,
+    claim: (stageId: string, batchId: string, operatorId?: string) =>
+      act(`${base(stageId, batchId)}/claim`, operatorId ? { operatorId } : {}),
+    reassign: (stageId: string, batchId: string, operatorId: string) =>
+      act(`${base(stageId, batchId)}/reassign`, { operatorId }),
+    forward: (stageId: string, batchId: string) => act(`${base(stageId, batchId)}/forward`),
+    sendBack: (stageId: string, batchId: string, notes: string) => act(`${base(stageId, batchId)}/send-back`, { notes }),
+    fail: (stageId: string, batchId: string, notes: string) => act(`${base(stageId, batchId)}/fail`, { notes }),
+  };
+}

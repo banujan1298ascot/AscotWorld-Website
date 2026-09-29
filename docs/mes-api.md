@@ -130,6 +130,13 @@ All requests: header `x-staff-id: <staff id>`.
 Requires `mes.claim`. → `200 { transition }` · `409` if already claimed, or
 if the calling operator already holds a different batch open elsewhere.
 
+### `POST /api/mes/stages/:stageId/batches/:batchId/reassign`
+Body: `{ "operatorId": "staff_float_3" }`. Hands an in-progress batch to a
+different operator — the table view's editable "Assigned to" column.
+Allowed for the batch's current holder, or anyone acting at a supervised
+stage (the same rule as forward). → `200 { transition }` · `409` if the new
+operator already holds another batch.
+
 ### `POST /api/mes/stages/:stageId/batches/:batchId/forward`
 Requires `mes.pass` and that the caller holds the open transition.
 → `200 { batch: BatchRecord }`.
@@ -261,3 +268,15 @@ as both admin and viewer — it renders correctly and degrades to a clear
 error (rather than hanging or crashing) with no database configured; a
 loading-state bug where the page would spin forever if `departments` failed
 to load was found and fixed during that check.
+
+---
+
+## Table view (trial)
+
+`src/app/(portal)/mes-table/page.tsx` — the same pipeline laid out like the
+Batch Book: one row per batch across every station, with **Assigned to** and
+**Status** editable in the row. Built as a trial to compare against the
+board; both use the same endpoints and rules, so a change in one shows in
+the other. Every change asks for confirmation first; Send back and Fail
+need a reason, as on the board. Station accounts see only their own
+station, as on the board. The two pages link to each other.

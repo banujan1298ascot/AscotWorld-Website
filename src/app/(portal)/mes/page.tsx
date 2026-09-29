@@ -24,6 +24,7 @@ import {
   HandPalm,
   SpeakerHigh,
   SpeakerSlash,
+  Table,
   UserPlus,
   XCircle,
 } from "@phosphor-icons/react/dist/ssr";
@@ -203,15 +204,24 @@ export default function MesPipelinePage() {
             : "Claim a batch, then send it forward, back, or fail it — every move is timestamped and attributed."
         }
         actions={
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            aria-pressed={soundEnabled}
-          >
-            {soundEnabled ? <SpeakerHigh size={15} weight="bold" /> : <SpeakerSlash size={15} weight="bold" />}
-            {soundEnabled ? "Sound alerts on" : "Sound alerts off"}
-          </Button>
+          <>
+            {/* Trial: the same pipeline as an editable table, to compare. */}
+            <Link href="/mes-table">
+              <Button size="sm" variant="secondary">
+                <Table size={15} weight="bold" />
+                Switch to table view
+              </Button>
+            </Link>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setSoundEnabled(!soundEnabled)}
+              aria-pressed={soundEnabled}
+            >
+              {soundEnabled ? <SpeakerHigh size={15} weight="bold" /> : <SpeakerSlash size={15} weight="bold" />}
+              {soundEnabled ? "Sound alerts on" : "Sound alerts off"}
+            </Button>
+          </>
         }
       />
 
