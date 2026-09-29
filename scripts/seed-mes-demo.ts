@@ -40,11 +40,18 @@ import { seedProductionHistory } from "./demo-history";
 const CLERK: ActingStaff = { id: "staff_stage_1", role: "production" };
 const ADMIN: ActingStaff = { id: "staff_admin", role: "admin" };
 
-/** The operator pinned to each station — each ends up holding one batch. */
+/** Check 4's supervisor — the only app user at that (supervised) station:
+ *  every batch there is assigned by them to a floor operator, and moved on
+ *  by them. */
+const SUPERVISOR: ActingStaff = { id: "staff_stage_4", role: "production", mesStage: 4 };
+const SUPERVISED_STAGE = 4;
+
+/** Who's working each station's held batch at the end. Check 4's is a floor
+ *  operator assigned by the supervisor (not in POOL, so never double-booked). */
 const STATION: Record<number, ActingStaff> = {
   2: { id: "staff_stage_2", role: "production" },
   3: { id: "staff_stage_3", role: "production" },
-  4: { id: "staff_stage_4", role: "production" },
+  4: { id: "staff_eng", role: "production" },
   5: { id: "staff_stage_5", role: "production" },
   6: { id: "staff_stage_6", role: "qa" },
   7: { id: "staff_stage_7", role: "production" },
@@ -63,6 +70,21 @@ const POOL: ActingStaff[] = [
 ];
 let poolIndex = 0;
 const nextOperator = () => POOL[poolIndex++ % POOL.length];
+
+/**
+ * Starts a batch at a stage with `operator` doing the work, and returns who
+ * then acts on it. At the supervised station that's the supervisor, who
+ * assigns the operator (as the real station does); elsewhere the operator
+ * claims it themselves.
+ */
+async function start(stageIdValue: string, stage: number, batchId: string, operator: ActingStaff): Promise<ActingStaff> {
+  if (stage === SUPERVISED_STAGE) {
+    await claimBatch(stageIdValue, batchId, SUPERVISOR, operator.id);
+    return SUPERVISOR;
+  }
+  await claimBatch(stageIdValue, batchId, operator);
+  return operator;
+}
 
 const PRODUCTS: Array<Omit<CreateDraftInput, "departmentId">> = [
   { batchType: "A", productName: "Amoxicillin 500mg Capsules", quantity: "5000", unit: "capsules" },
@@ -153,9 +175,8 @@ async function main() {
    *  and forwarded straight away by a pool operator. */
   async function advance(batchId: string, from: number, target: number) {
     for (let stage = from; stage < target; stage++) {
-      const operator = nextOperator();
-      await claimBatch(stageId(stage), batchId, operator);
-      await forwardBatch(stageId(stage), batchId, operator);
+      const actor = await start(stageId(stage), stage, batchId, nextOperator());
+      await forwardBatch(stageId(stage), batchId, actor);
     }
   }
 
@@ -173,8 +194,7 @@ async function main() {
     if (station <= 6) {
       const batch = await enterBatch();
       await advance(batch.id, 2, station + 1);
-      const reviewer = nextOperator();
-      await claimBatch(stageId(station + 1), batch.id, reviewer);
+      const reviewer = await start(stageId(station + 1), station + 1, batch.id, nextOperator());
       await sendBatchBack(stageId(station + 1), batch.id, reviewer, REWORK_REASONS[station + 1]);
       created++;
     }
@@ -195,9 +215,8 @@ async function main() {
   ] as const) {
     const batch = await enterBatch();
     await advance(batch.id, 2, failAt);
-    const operator = nextOperator();
-    await claimBatch(stageId(failAt), batch.id, operator);
-    await failBatch(stageId(failAt), batch.id, operator, reason);
+    const actor = await start(stageId(failAt), failAt, batch.id, nextOperator());
+    await failBatch(stageId(failAt), batch.id, actor, reason);
     created++;
   }
 
@@ -224,7 +243,7 @@ async function main() {
   for (let station = 2; station <= 7; station++) {
     const batch = await enterBatch();
     await advance(batch.id, 2, station);
-    await claimBatch(stageId(station), batch.id, STATION[station]);
+    await start(stageId(station), station, batch.id, STATION[station]);
     created++;
   }
   for (const [station, holderId] of [

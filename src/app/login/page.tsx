@@ -7,6 +7,7 @@ import { Logo } from "@/components/Logo";
 import { Avatar, Button, Field, Input } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { staffCollection } from "@/lib/seed";
+import { useCollection } from "@/lib/storage";
 import { homeRouteFor } from "@/modules/registry";
 import { ROLES, type Role } from "@/lib/types";
 
@@ -16,6 +17,10 @@ const DEMO_ROLE_ORDER: Role[] = ["admin", "production", "qa", "viewer"];
 export default function LoginPage() {
   const { user, ready, signIn, signInAs } = useAuth();
   const router = useRouter();
+  // Subscribed rather than read once: the list comes from the server, and
+  // the server render has none yet — reading it directly would render
+  // different buttons on the server and in the browser.
+  const { items: staff } = useCollection(staffCollection);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -38,7 +43,7 @@ export default function LoginPage() {
   function quickSignIn(role: Role) {
     // Station accounts are listed separately below — a role shortcut should
     // land on the unrestricted account for that role, not a pinned station.
-    const match = staffCollection.all().find((s) => s.role === role && s.mesStage == null);
+    const match = staff.find((s) => s.role === role && s.mesStage == null);
     if (!match) return;
     signInAs(match.id);
   }
@@ -184,7 +189,7 @@ export default function LoginPage() {
 
             <div className="mt-3 grid gap-1.5">
               {DEMO_ROLE_ORDER.map((role) => {
-                const person = staffCollection.all().find((s) => s.role === role);
+                const person = staff.find((s) => s.role === role);
                 if (!person) return null;
                 return (
                   <button
@@ -228,8 +233,7 @@ export default function LoginPage() {
             </p>
 
             <div className="mt-3 grid gap-1.5">
-              {staffCollection
-                .all()
+              {staff
                 .filter((s) => s.mesStage != null)
                 .sort((a, b) => (a.mesStage ?? 0) - (b.mesStage ?? 0))
                 .map((person) => (

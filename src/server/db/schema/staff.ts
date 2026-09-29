@@ -1,4 +1,4 @@
-import { boolean, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { staffRoleEnum } from "./enums";
 
 /**
@@ -20,6 +20,10 @@ export const staff = pgTable("staff", {
   department: text("department"),
   email: text("email").notNull().unique(),
   isActive: boolean("is_active").notNull().default(true),
+  /** The MES station this account is pinned to (stage sequence number), as
+   *  on the Team page — the server needs it to know who runs a supervised
+   *  station. Null for anyone who isn't tied to one station. */
+  mesStage: integer("mes_stage"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

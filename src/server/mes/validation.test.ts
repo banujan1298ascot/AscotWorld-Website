@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canActOnTransition, canClaim, canFail, canForward, canSendBack } from "./validation";
+import { canActOnTransition, canClaim, canFail, canForward, canRunStation, canSendBack, checkAssignee } from "./validation";
 
 const prodStaff = { id: "staff_prod_1", role: "production" as const };
 const otherProdStaff = { id: "staff_prod_2", role: "production" as const };
@@ -100,5 +100,32 @@ describe("canFail", () => {
 
   it("refuses viewer even at a fail-authority stage", () => {
     expect(canFail(viewerStaff, { sequenceNumber: 6, failAuthority: true }, "reason").ok).toBe(false);
+  });
+});
+
+describe("canRunStation", () => {
+  const check4 = { sequenceNumber: 4, supervised: true };
+  const check3 = { sequenceNumber: 3, supervised: false };
+
+  it("lets anyone through at an ordinary station — the usual rules decide", () => {
+    expect(canRunStation({ id: "op", role: "production" }, check3).ok).toBe(true);
+  });
+
+  it("at a supervised station, allows only its own pinned account and admins", () => {
+    expect(canRunStation({ id: "sup", role: "production", mesStage: 4 }, check4).ok).toBe(true);
+    expect(canRunStation({ id: "boss", role: "admin" }, check4).ok).toBe(true);
+    expect(canRunStation({ id: "op", role: "production" }, check4).ok).toBe(false);
+    expect(canRunStation({ id: "other", role: "production", mesStage: 5 }, check4).ok).toBe(false);
+  });
+});
+
+describe("checkAssignee", () => {
+  it("needs a named operator at a supervised station", () => {
+    expect(checkAssignee({ supervised: true }, null).ok).toBe(false);
+    expect(checkAssignee({ supervised: true }, "staff_eng").ok).toBe(true);
+  });
+
+  it("allows a self-claim anywhere else", () => {
+    expect(checkAssignee({ supervised: false }, null).ok).toBe(true);
   });
 });

@@ -30,6 +30,14 @@ export const stageTransitions = pgTable(
       .references(() => staff.id, { onDelete: "restrict" }),
 
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * When this visit to the stage began, if the batch was handed between
+     * operators part-way through (see REASSIGNED): each operator's row
+     * starts at their own `receivedAt`, but they all share the first one's
+     * start here — so "how long did the stage take" still spans the whole
+     * visit. Null when there was no handover, meaning `receivedAt`.
+     */
+    visitStartedAt: timestamp("visit_started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
 
     /** Postgres-generated column — null until completedAt is set. */

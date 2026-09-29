@@ -137,17 +137,23 @@ export default function MesTablePage() {
     );
   }
 
-  const mayOperate = can("mes.claim");
-  /** Who may move an in-progress batch on — its holder, or anyone running a
-   *  supervised station (the board's rule, enforced again by the server). */
+  /** A supervised station (Check 4) is run by its supervisor alone — the
+   *  account pinned there, or an admin. Same rule as the board and server. */
+  const runsStation = (stage: StageDefinition) =>
+    !stage.supervised || user.role === "admin" || user.mesStage === stage.sequenceNumber;
+  const mayOperate = (stage: StageDefinition) => can("mes.claim") && runsStation(stage);
+  /** Who may move an in-progress batch on — its holder, or a supervised
+   *  station's supervisor (the board's rule, enforced again by the server). */
   const canAct = (row: Row) =>
-    mayOperate && row.state === "in_progress" && (row.operatorId === user.id || row.stage.supervised);
+    mayOperate(row.stage) && row.state === "in_progress" && (row.operatorId === user.id || row.stage.supervised);
 
-  /** Pinned to the row's station, or floating — same list the board offers. */
+  /** Pinned to the row's station, or floating — same list the board offers.
+   *  At a supervised station the pinned account is the supervisor, not an
+   *  operator, so it's left off: assignments there time the operators. */
   const operatorsFor = (stage: StageDefinition): StaffMember[] =>
     staff
       .filter((s) => roleCan(s.role, "mes.claim"))
-      .filter((s) => s.mesStage == null || s.mesStage === stage.sequenceNumber)
+      .filter((s) => s.mesStage == null || (s.mesStage === stage.sequenceNumber && !stage.supervised))
       .sort((a, b) => Number(a.mesStage == null) - Number(b.mesStage == null) || a.name.localeCompare(b.name));
 
   async function apply(current: Change, reason: string) {
@@ -293,7 +299,7 @@ export default function MesTablePage() {
                       row={row}
                       pending={change?.row.batch.id === row.batch.id}
                       operators={operatorsFor(row.stage)}
-                      mayOperate={mayOperate}
+                      mayOperate={mayOperate(row.stage)}
                       canAct={canAct(row)}
                       nextStage={stageBySequence(row.stage.sequenceNumber + 1)}
                       previousStage={row.stage.sequenceNumber >= 3 ? stageBySequence(row.stage.sequenceNumber - 1) : undefined}
@@ -376,7 +382,9 @@ function TableRow({
   const operatorLocked = !mayOperate || (!waiting && !canAct);
   const statusLocked = !mayOperate || (!waiting && !canAct);
   const lockReason = !mayOperate
-    ? "Your role can't change batches."
+    ? stage.supervised
+      ? `Only the ${stage.name} supervisor changes batches here.`
+      : "Your role can't change batches."
     : !waiting && !canAct
       ? `Only ${row.operatorName ?? "the operator"} can change this — it's assigned to them.`
       : undefined;
@@ -453,10 +461,15 @@ function TableRow({
             style={{ color: meta.tone }}
           >
             <option value="current">{meta.label}</option>
-            {waiting ? <option value="start">In progress (start it myself)</option> : null}
+            {/* At a supervised station a batch starts by being assigned to an
+                operator (the "Assigned to" column), and is only sent back or
+                failed once someone's on it — so their time is recorded. */}
+            {waiting && !stage.supervised ? <option value="start">In progress (start it myself)</option> : null}
             {!waiting ? <option value="forward">{forwardLabel}</option> : null}
-            {previousStage ? <option value="send-back">Send back to {previousStage.name}…</option> : null}
-            {stage.failAuthority ? <option value="fail">Fail batch…</option> : null}
+            {previousStage && !(waiting && stage.supervised) ? (
+              <option value="send-back">Send back to {previousStage.name}…</option>
+            ) : null}
+            {stage.failAuthority && !(waiting && stage.supervised) ? <option value="fail">Fail batch…</option> : null}
           </select>
         </div>
       </td>

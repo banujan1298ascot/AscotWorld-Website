@@ -61,23 +61,43 @@ spec's restriction is about the stage, not who's operating it.
 
 ### Supervised stages
 
-Clarified 2026-09-22: at Check 4, the operators doing the actual material
-check work the floor and never sign into the app at all — the supervisor is
-the only person at that station who does. So the ordinary "only the operator
-who claimed it may act on it" rule (below) would strand every batch the
-moment the supervisor assigned it to someone.
+Clarified 2026-09-22, and again 2026-09-29: at Check 4 the **supervisor** is
+the only person who uses the app. The operators doing the material check
+work the floor and never sign in. The supervisor:
 
-`stage_definitions.supervised` marks a stage where claiming still records
-*who the work is assigned to* (for the audit trail and the "held by" label),
-but does **not** restrict who may forward, send back, or fail it — anyone
-with `mes.claim`/`mes.pass` acting at that stage may, not just the assignee.
-`canActOnTransition` (`src/server/mes/validation.ts`) takes the stage as an
-optional third argument for exactly this — omit it and the rule is the
-ordinary holder-only one.
+1. **assigns** each incoming batch to the operator making it,
+2. is told by the operator when they've finished, and
+3. **sends the batch on** to the next station (or back, or fails it).
+
+Assigning exists purely so we know **how long each operator takes to make
+each product** — the operator's time runs from assignment until the
+supervisor sends the batch on.
+
+`stage_definitions.supervised` marks such a station. The rules there
+(`canRunStation` / `checkAssignee` in `src/server/mes/validation.ts`):
+
+- Only the account pinned to that station (`staff.mes_stage`) or an admin may
+  act there at all — claim, assign, hand over, forward, send back, fail.
+  Everyone else sees it read-only.
+- A batch is always started by assigning a **named operator** — never a
+  self-claim, which would record the supervisor as the one who did the work.
+  The supervisor's own account isn't offered as an operator.
+- Send back and fail need an operator assigned first, so every record there
+  says who worked on it.
+- Once assigned, the batch's "only the holder may act" lock doesn't apply —
+  the supervisor moves it on (`canActOnTransition`'s third argument).
 
 This is a property of the *stage*, not a role, the same way `fail_authority`
-is: a department could have more than one supervised station, and nothing
-here assumes Check 4 is the only one.
+is: a department could have more than one supervised station.
+
+### Handing a batch to another operator
+
+`reassignBatch` closes the first operator's row (outcome `REASSIGNED`) and
+opens a new one for the next, so each is credited with only the time they
+had it. Both rows carry the visit's original start in `visit_started_at`, so
+station-level figures (average time per station, rework rates, product
+timing per station) skip `REASSIGNED` rows and still time the whole visit
+from the first assignment. Per-operator figures count each row.
 
 ---
 

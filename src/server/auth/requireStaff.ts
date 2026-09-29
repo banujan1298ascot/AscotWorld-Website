@@ -38,7 +38,7 @@ export async function requireStaff(request: NextRequest): Promise<ActingStaff> {
   const [row] = await db.select().from(staff).where(eq(staff.id, id)).limit(1);
   if (!row || !row.isActive) throw new ApiError(401, "Unknown or inactive staff id.");
 
-  return { id: row.id, role: row.role };
+  return { id: row.id, role: row.role, mesStage: row.mesStage };
 }
 
 /** Throws a 403 ApiError if `staffMember`'s role lacks `capability`. */

@@ -314,11 +314,13 @@ export async function getProductTiming(
         COUNT(visit.id)::int AS sample_size
       FROM "stage_definitions" sd
       LEFT JOIN (
-        SELECT st.id, st.stage_id, st.duration
+        -- One row per visit: the row that closed it, timed from the visit's
+        -- first start in case it was handed between operators part-way.
+        SELECT st.id, st.stage_id, st.completed_at - COALESCE(st.visit_started_at, st.received_at) AS duration
         FROM "stage_transitions" st
         JOIN "batch_records" br ON br.id = st.batch_id
         WHERE br.department_id = ${departmentId} AND br.product_name = ${productName}
-          AND st.completed_at IS NOT NULL
+          AND st.completed_at IS NOT NULL AND st.outcome <> 'REASSIGNED'
       ) visit ON visit.stage_id = sd.id
       WHERE sd.department_id = ${departmentId} AND sd.sequence_number >= 2
       GROUP BY sd.id, sd.name, sd.sequence_number

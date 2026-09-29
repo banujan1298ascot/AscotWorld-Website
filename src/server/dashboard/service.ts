@@ -109,11 +109,13 @@ export async function getStageDurations(departmentId: string): Promise<StageDura
     sample_size: number;
   }>(sql`
     SELECT sd.id AS stage_id, sd.name AS stage_name, sd.sequence_number,
-      EXTRACT(EPOCH FROM AVG(st.duration))::float AS avg_seconds,
+      -- A visit handed between operators is several rows; only the last
+      -- (not REASSIGNED) closes it, timed from the visit's first start.
+      EXTRACT(EPOCH FROM AVG(st.completed_at - COALESCE(st.visit_started_at, st.received_at)))::float AS avg_seconds,
       COUNT(st.id)::int AS sample_size
     FROM "stage_definitions" sd
     LEFT JOIN "stage_transitions" st
-      ON st.stage_id = sd.id AND st.completed_at IS NOT NULL
+      ON st.stage_id = sd.id AND st.completed_at IS NOT NULL AND st.outcome <> 'REASSIGNED'
     LEFT JOIN "batch_records" br ON br.id = st.batch_id
     WHERE sd.department_id = ${departmentId} AND sd.sequence_number >= 2
     GROUP BY sd.id, sd.name, sd.sequence_number
@@ -150,7 +152,7 @@ export async function getStageReworkRates(departmentId: string): Promise<StageRe
     failed: number;
   }>(sql`
     SELECT sd.id AS stage_id, sd.name AS stage_name, sd.sequence_number,
-      COUNT(st.id) FILTER (WHERE st.completed_at IS NOT NULL)::int AS total_closed,
+      COUNT(st.id) FILTER (WHERE st.completed_at IS NOT NULL AND st.outcome <> 'REASSIGNED')::int AS total_closed,
       COUNT(st.id) FILTER (WHERE st.outcome = 'SENT_BACK')::int AS sent_back,
       COUNT(st.id) FILTER (WHERE st.outcome = 'FAILED')::int AS failed
     FROM "stage_definitions" sd
@@ -205,7 +207,9 @@ export interface OperatorStageDuration {
   sampleSize: number;
 }
 
-/** Average time per stage, broken down per operator (spec 4.2) — gated
+/** Average time per stage, broken down per operator (spec 4.2). Each
+ *  operator's share of a handed-over visit counts separately, so they're
+ *  credited with only the time they had it. Gated
  *  behind `dashboard.viewOperatorMetrics` at the route, not here; this
  *  function itself has no access-control opinion. */
 export async function getOperatorStageDurations(departmentId: string): Promise<OperatorStageDuration[]> {

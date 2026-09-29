@@ -5,4 +5,6 @@ import type { Role } from "@/lib/types";
 export interface ActingStaff {
   id: string;
   role: Role;
+  /** The MES station they're pinned to, if any — see staff.mes_stage. */
+  mesStage?: number | null;
 }

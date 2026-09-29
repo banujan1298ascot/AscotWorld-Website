@@ -22,12 +22,18 @@ export const batchStatusEnum = pgEnum("batch_status", [
   "FAILED",
 ]);
 
-/** Result of a stage's Outgoing action (spec 3.1, 3.2). */
+/**
+ * Result of a stage's Outgoing action (spec 3.1, 3.2). REASSIGNED closes one
+ * operator's share of a stage visit when the batch is handed to someone
+ * else mid-way — the batch hasn't left the stage, so stage-level figures
+ * skip these rows, but per-operator timing counts each one.
+ */
 export const stageOutcomeEnum = pgEnum("stage_outcome", [
   "FORWARD",
   "SENT_BACK",
   "ON_HOLD",
   "FAILED",
+  "REASSIGNED",
 ]);
 
 /**

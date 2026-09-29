@@ -135,21 +135,31 @@ export async function resetAll(caller: Caller): Promise<void> {
 const ROLES: Role[] = ["admin", "production", "qa", "viewer"];
 
 async function mirrorStaff(person: Data): Promise<void> {
-  const { id, name, role, department, email } = person as {
+  const { id, name, role, department, email, mesStage } = person as {
     id: string;
     name?: string;
     role?: string;
     department?: string;
     email?: string;
+    mesStage?: number | null;
   };
+  const station = typeof mesStage === "number" ? mesStage : null;
   if (!name || !email || !ROLES.includes(role as Role)) return;
   try {
     await db
       .insert(staff)
-      .values({ id, name, role: role as Role, department: department ?? null, email, isActive: true })
+      .values({ id, name, role: role as Role, department: department ?? null, email, mesStage: station, isActive: true })
       .onConflictDoUpdate({
         target: staff.id,
-        set: { name, role: role as Role, department: department ?? null, email, isActive: true, updatedAt: sql`now()` },
+        set: {
+          name,
+          role: role as Role,
+          department: department ?? null,
+          email,
+          mesStage: station,
+          isActive: true,
+          updatedAt: sql`now()`,
+        },
       });
   } catch (error) {
     // Most likely another person already has this email — the shared record

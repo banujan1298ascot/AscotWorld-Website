@@ -82,10 +82,11 @@ function startSync(): void {
   window.addEventListener("focus", syncWatched);
 }
 
-/** Re-fetch every collection now — e.g. right after signing in, when what
- *  the server will show (your notifications) has changed. */
+/** Re-fetch every collection on screen now — e.g. right after signing in,
+ *  when what the server will show (your notifications) has changed. The
+ *  rest catch up when a page next shows them. */
 export function refreshCollections(): void {
-  registry.forEach((c) => void c.refresh(true));
+  registry.filter((c) => c.isWatched()).forEach((c) => void c.refresh(true));
 }
 
 /* -------------------------------------------------------------------------- */

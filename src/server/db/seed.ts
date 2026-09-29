@@ -25,16 +25,17 @@ const STAFF = [
   { id: "staff_eng", name: "Reece Donnelly", role: "production" as const, department: "Engineering", email: "r.donnelly@ascotworld.example" },
   { id: "staff_wh", name: "Grace Adeyemi", role: "production" as const, department: "Warehouse", email: "g.adeyemi@ascotworld.example" },
   { id: "staff_viewer", name: "Helen Voss", role: "viewer" as const, department: "Regulatory", email: "h.voss@ascotworld.example" },
-  // MES station accounts — one per pipeline stage. Which stage each one is
-  // pinned to lives in src/lib/seed.ts (`mesStage`); this table only needs
-  // the identity, since it exists for foreign-key attribution.
-  { id: "staff_stage_1", name: "Nadia Farouk", role: "production" as const, department: "Production", email: "n.farouk@ascotworld.example" },
-  { id: "staff_stage_2", name: "Liam Byrne", role: "production" as const, department: "Production", email: "l.byrne@ascotworld.example" },
-  { id: "staff_stage_3", name: "Ola Adeyinka", role: "production" as const, department: "Warehouse", email: "o.adeyinka@ascotworld.example" },
-  { id: "staff_stage_4", name: "Ruth Cavendish", role: "production" as const, department: "Production", email: "r.cavendish@ascotworld.example" },
-  { id: "staff_stage_5", name: "Jacob Lindqvist", role: "production" as const, department: "Production", email: "j.lindqvist@ascotworld.example" },
-  { id: "staff_stage_6", name: "Yara Haddad", role: "qa" as const, department: "Quality Assurance", email: "y.haddad@ascotworld.example" },
-  { id: "staff_stage_7", name: "Errol Simmons", role: "production" as const, department: "Warehouse", email: "e.simmons@ascotworld.example" },
+  // MES station accounts — one per pipeline stage, pinned to it by
+  // `mesStage` (as in src/lib/seed.ts). The server needs the pin to know who
+  // runs a supervised station: only Check 4's own account (or an admin) may
+  // act there.
+  { id: "staff_stage_1", name: "Nadia Farouk", role: "production" as const, department: "Production", email: "n.farouk@ascotworld.example", mesStage: 1 },
+  { id: "staff_stage_2", name: "Liam Byrne", role: "production" as const, department: "Production", email: "l.byrne@ascotworld.example", mesStage: 2 },
+  { id: "staff_stage_3", name: "Ola Adeyinka", role: "production" as const, department: "Warehouse", email: "o.adeyinka@ascotworld.example", mesStage: 3 },
+  { id: "staff_stage_4", name: "Ruth Cavendish", role: "production" as const, department: "Production", email: "r.cavendish@ascotworld.example", mesStage: 4 },
+  { id: "staff_stage_5", name: "Jacob Lindqvist", role: "production" as const, department: "Production", email: "j.lindqvist@ascotworld.example", mesStage: 5 },
+  { id: "staff_stage_6", name: "Yara Haddad", role: "qa" as const, department: "Quality Assurance", email: "y.haddad@ascotworld.example", mesStage: 6 },
+  { id: "staff_stage_7", name: "Errol Simmons", role: "production" as const, department: "Warehouse", email: "e.simmons@ascotworld.example", mesStage: 7 },
   // Floating operators, assignable at any stage.
   { id: "staff_float_1", name: "Farah Iqbal", role: "production" as const, department: "Production", email: "f.iqbal@ascotworld.example" },
   { id: "staff_float_2", name: "Callum Reid", role: "production" as const, department: "Production", email: "c.reid@ascotworld.example" },
@@ -148,7 +149,13 @@ async function main() {
       .values(person)
       .onConflictDoUpdate({
         target: staff.id,
-        set: { name: person.name, role: person.role, department: person.department, email: person.email },
+        set: {
+          name: person.name,
+          role: person.role,
+          department: person.department,
+          email: person.email,
+          mesStage: "mesStage" in person ? person.mesStage : null,
+        },
       });
   }
 

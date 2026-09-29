@@ -12,7 +12,16 @@ import { ApiError } from "../apiError";
 import { db, type Db } from "../db/client";
 import { batchRecords, stageDefinitions, stageTransitions, staff } from "../db/schema";
 import type { ActingStaff } from "../actingStaff";
-import { canActOnTransition, canClaim, canFail, canForward, canSendBack, type StageForAuth } from "./validation";
+import {
+  canActOnTransition,
+  canClaim,
+  canFail,
+  canForward,
+  canRunStation,
+  canSendBack,
+  checkAssignee,
+  type StageForAuth,
+} from "./validation";
 
 export type StageRow = typeof stageDefinitions.$inferSelect;
 export type BatchRecordRow = typeof batchRecords.$inferSelect;
@@ -122,6 +131,11 @@ export async function claimBatch(
   const operatorId = assignToOperatorId ?? actingStaff.id;
 
   return db.transaction(async (tx) => {
+    const stage = await requireStage(tx, stageId);
+    for (const verdict of [canRunStation(actingStaff, stage), checkAssignee(stage, assignToOperatorId)]) {
+      if (!verdict.ok) throw new ApiError(403, verdict.error);
+    }
+
     if (operatorId !== actingStaff.id) {
       const [assignee] = await tx.select().from(staff).where(eq(staff.id, operatorId)).limit(1);
       if (!assignee) throw new ApiError(422, "That operator doesn't exist.");
@@ -159,8 +173,13 @@ export async function claimBatch(
 /**
  * Hands a batch that's already in progress to a different operator — the
  * table view's editable "Assigned to" column. The same people who may move
- * it on may reassign it: its current holder, or anyone running a supervised
- * station. The new operator is held to the usual one-batch-at-a-time rule.
+ * it on may reassign it: its current holder, or a supervised station's
+ * supervisor. The new operator is held to the usual one-batch-at-a-time rule.
+ *
+ * The first operator's share is closed off (outcome REASSIGNED) and a fresh
+ * row opened for the new one, rather than renaming the holder — so each
+ * operator is credited with only the time they actually had it. Both rows
+ * carry the visit's original start, so the stage's own timing is unchanged.
  */
 export async function reassignBatch(
   stageId: string,
@@ -176,16 +195,37 @@ export async function reassignBatch(
     if (!assignee) throw new ApiError(422, "That operator doesn't exist.");
 
     const stage = await requireStage(tx, stageId);
+    const station = canRunStation(actingStaff, stage);
+    if (!station.ok) throw new ApiError(403, station.error);
     const openTransition = await requireOpenTransition(tx, stageId, batchId);
     const ownership = canActOnTransition(actingStaff, openTransition, stage);
     if (!ownership.ok) throw new ApiError(403, ownership.error);
-    if (openTransition!.operatorId === newOperatorId) return openTransition!;
+    const current = openTransition!;
+    if (current.operatorId === newOperatorId) return current;
+
+    const now = new Date();
+    await tx
+      .update(stageTransitions)
+      .set({
+        completedAt: now,
+        outcome: "REASSIGNED",
+        destinationStageId: stageId,
+        notes: `Handed to ${assignee.name}`,
+        visitStartedAt: current.visitStartedAt ?? current.receivedAt,
+        updatedAt: now,
+      })
+      .where(eq(stageTransitions.id, current.id));
 
     try {
       const [transition] = await tx
-        .update(stageTransitions)
-        .set({ operatorId: newOperatorId, updatedAt: new Date() })
-        .where(eq(stageTransitions.id, openTransition!.id))
+        .insert(stageTransitions)
+        .values({
+          batchId,
+          stageId,
+          operatorId: newOperatorId,
+          receivedAt: now,
+          visitStartedAt: current.visitStartedAt ?? current.receivedAt,
+        })
         .returning();
       return transition;
     } catch (err) {
@@ -205,6 +245,8 @@ export async function forwardBatch(stageId: string, batchId: string, actingStaff
     // The stage is loaded first because whether a non-holder may act depends
     // on it — a supervised station lets its supervisor move the batch on.
     const stage = await requireStage(tx, stageId);
+    const station = canRunStation(actingStaff, stage);
+    if (!station.ok) throw new ApiError(403, station.error);
     const openTransition = await requireOpenTransition(tx, stageId, batchId);
     const ownership = canActOnTransition(actingStaff, openTransition, stage);
     if (!ownership.ok) throw new ApiError(403, ownership.error);
@@ -254,6 +296,8 @@ export async function sendBatchBack(
     if (!batch) throw new ApiError(404, "Batch not found.");
 
     const stage = await requireStage(tx, stageId);
+    const station = canRunStation(actingStaff, stage);
+    if (!station.ok) throw new ApiError(403, station.error);
     const openTransition = await requireOpenTransition(tx, stageId, batchId);
     const ownership = canActOnTransition(actingStaff, openTransition, stage);
     if (!ownership.ok) throw new ApiError(403, ownership.error);
@@ -304,6 +348,8 @@ export async function failBatch(
     if (!batch) throw new ApiError(404, "Batch not found.");
 
     const stage = await requireStage(tx, stageId);
+    const station = canRunStation(actingStaff, stage);
+    if (!station.ok) throw new ApiError(403, station.error);
     const openTransition = await requireOpenTransition(tx, stageId, batchId);
     const ownership = canActOnTransition(actingStaff, openTransition, stage);
     if (!ownership.ok) throw new ApiError(403, ownership.error);

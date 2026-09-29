@@ -124,13 +124,23 @@ export default function MesPipelinePage() {
     useSensor(TouchSensor, { activationConstraint: { distance: 8 } }),
   );
 
+  /** Check 4 and any other supervised station: its floor operators don't
+   *  use the app, so the supervisor assigns every batch to one of them and
+   *  moves it on once they report back. */
+  const supervised = Boolean(currentStage?.supervised);
+
   /** Who this stage can hand a batch to: anyone pinned to this stage, plus
-   *  the floating operators who aren't pinned anywhere. */
+   *  the floating operators who aren't pinned anywhere. At a supervised
+   *  station the pinned account is the supervisor, not someone doing the
+   *  work, so they're left off — assignments there are what operator
+   *  timing is measured from. */
   const assignableOperators = useMemo(
     () =>
       staff
         .filter((s) => roleCan(s.role, "mes.claim"))
-        .filter((s) => s.mesStage == null || s.mesStage === currentStage?.sequenceNumber)
+        .filter(
+          (s) => s.mesStage == null || (s.mesStage === currentStage?.sequenceNumber && !currentStage?.supervised),
+        )
         .sort((a, b) => {
           const aPinned = a.mesStage != null ? 0 : 1;
           const bPinned = b.mesStage != null ? 0 : 1;
@@ -140,6 +150,12 @@ export default function MesPipelinePage() {
   );
 
   if (!user) return null;
+
+  /** At a supervised station only its supervisor (the account pinned there)
+   *  or an admin runs it — everyone else sees the board read-only. The
+   *  server enforces the same rule. */
+  const runsStation = !supervised || user.role === "admin" || user.mesStage === currentStage?.sequenceNumber;
+  const mayOperate = can("mes.claim") && runsStation;
 
   const allBatches = queue ? [...queue.incoming, ...queue.returned, ...queue.inProgress.map((e) => e.batch)] : [];
   const batchById = (id: string) => allBatches.find((b) => b.id === id);
@@ -154,7 +170,8 @@ export default function MesPipelinePage() {
    * act on a batch assigned to somebody else, since that assignee is
    * working the floor and never opens the app.
    */
-  const canActOn = (batchId: string) => !isUnclaimed(batchId) && (isClaimedByMe(batchId) || Boolean(currentStage?.supervised));
+  const canActOn = (batchId: string) =>
+    mayOperate && !isUnclaimed(batchId) && (isClaimedByMe(batchId) || supervised);
 
   /** Dropping on a column asks before acting, rather than moving the batch
    *  the moment a finger lifts in roughly the right place. */
@@ -167,7 +184,12 @@ export default function MesPipelinePage() {
     const batch = batchById(String(event.active.id));
     const zone = event.over?.id;
     if (!batch || !zone) return;
-    if (zone === "zone-claim" && isUnclaimed(batch.id)) setPendingMove({ action: "claim", batch });
+    if (zone === "zone-claim" && isUnclaimed(batch.id)) {
+      // Starting a batch at a supervised station always means choosing who
+      // does it — never the supervisor claiming it themselves.
+      if (supervised) setAssigningBatchId(batch.id);
+      else setPendingMove({ action: "claim", batch });
+    }
     else if (zone === "zone-forward" && canActOn(batch.id)) setPendingMove({ action: "forward", batch });
   }
 
@@ -199,7 +221,9 @@ export default function MesPipelinePage() {
       <PageHeader
         title={pinnedStage !== null && currentStage ? currentStage.name : "MES pipeline"}
         description={
-          pinnedStage !== null
+          pinnedStage !== null && supervised
+            ? "Assign each batch to the operator making it. When they tell you it's done, send it on — their time runs until then."
+            : pinnedStage !== null
             ? "Your station's queue. Drag a batch to move it on, or hold Claim to hand it to an operator."
             : "Claim a batch, then send it forward, back, or fail it — every move is timestamped and attributed."
         }
@@ -314,6 +338,14 @@ export default function MesPipelinePage() {
             </Card>
           ) : null}
 
+          {supervised && !runsStation ? (
+            <div className="mb-4">
+              <PermissionNotice
+                message={`Only the ${currentStage?.name ?? "station"} supervisor assigns and moves batches here — you're seeing it read-only.`}
+              />
+            </div>
+          ) : null}
+
           {!ready ? (
             <div className="grid gap-3 md:grid-cols-3">
               {Array.from({ length: 3 }).map((_, i) => (
@@ -337,13 +369,19 @@ export default function MesPipelinePage() {
                       batch={batch}
                       returned={queue.returned.some((b) => b.id === batch.id)}
                       isNew={newBatchIds.has(batch.id)}
-                      onHold={can("mes.claim") ? () => setHoldMenuBatch(batch) : undefined}
+                      onHold={mayOperate ? () => setHoldMenuBatch(batch) : undefined}
                     >
-                      {can("mes.claim") ? (
+                      {mayOperate ? (
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <Button variant="secondary" onClick={() => void runAction(() => claim(batch.id))}>
-                            Claim
-                          </Button>
+                          {supervised ? (
+                            <Button variant="secondary" onClick={() => setAssigningBatchId(batch.id)}>
+                              Assign operator
+                            </Button>
+                          ) : (
+                            <Button variant="secondary" onClick={() => void runAction(() => claim(batch.id))}>
+                              Claim
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             aria-label="More actions for this batch"
@@ -432,10 +470,13 @@ export default function MesPipelinePage() {
         <BatchActionsModal
           batch={holdMenuBatch}
           started={canActOn(holdMenuBatch.id)}
-          supervised={Boolean(currentStage?.supervised)}
+          supervised={supervised}
           nextStageName={nextStage?.name}
           canSendBack={canSendBackFromHere}
           canFail={Boolean(currentStage?.failAuthority)}
+          // Send back / fail on a waiting batch would claim it as the
+          // supervisor — at a supervised station, assign an operator first.
+          mustAssignFirst={supervised && isUnclaimed(holdMenuBatch.id)}
           stageNumber={currentStage?.sequenceNumber ?? 0}
           onClose={() => setHoldMenuBatch(null)}
           onForward={async () => {
@@ -632,6 +673,7 @@ function BatchActionsModal({
   canSendBack,
   canFail,
   stageNumber,
+  mustAssignFirst = false,
   onClose,
   onAssign,
   onClaim,
@@ -648,6 +690,8 @@ function BatchActionsModal({
   canSendBack: boolean;
   canFail: boolean;
   stageNumber: number;
+  /** A supervised station's waiting batch: it can only be assigned. */
+  mustAssignFirst?: boolean;
   onClose: () => void;
   onAssign: () => void;
   onClaim: () => void;
@@ -677,18 +721,20 @@ function BatchActionsModal({
           />
         ) : (
           <>
-            <ActionRow
-              icon={<HandPalm size={20} weight="bold" />}
-              title="Claim it myself"
-              detail="Moves into In progress, held by you."
-              onClick={onClaim}
-            />
+            {supervised ? null : (
+              <ActionRow
+                icon={<HandPalm size={20} weight="bold" />}
+                title="Claim it myself"
+                detail="Moves into In progress, held by you."
+                onClick={onClaim}
+              />
+            )}
             <ActionRow
               icon={<UserPlus size={20} weight="bold" />}
               title="Assign to an operator"
               detail={
                 supervised
-                  ? "Records who's doing the check — you can still move it on."
+                  ? "Records who's making it, so we know how long each operator takes. You move it on when they're done."
                   : "Hand it to a named person — only they can move it on."
               }
               onClick={onAssign}
@@ -696,7 +742,9 @@ function BatchActionsModal({
           </>
         )}
 
-        {canSendBack ? (
+        {mustAssignFirst ? (
+          <PermissionNotice message="Assign it to an operator first — send back and fail are recorded against whoever worked on it." />
+        ) : canSendBack ? (
           <ActionRow
             icon={<ArrowFatLeft size={20} weight="bold" />}
             title="Send back"
@@ -709,7 +757,7 @@ function BatchActionsModal({
           />
         )}
 
-        {canFail ? (
+        {canFail && !mustAssignFirst ? (
           <ActionRow
             icon={<XCircle size={20} weight="bold" />}
             title="Fail this batch"
@@ -803,7 +851,7 @@ function AssignOperatorModal({
       title="Assign to an operator"
       description={
         supervised
-          ? `Records who's doing the check at ${stageName} — you can still move the batch on yourself.`
+          ? `Who's making it at ${stageName}? Their time runs from now until you send the batch on — that's how we learn how long each operator takes.`
           : `Whoever you pick holds this batch at ${stageName} — only they can send it on.`
       }
       footer={

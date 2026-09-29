@@ -13,7 +13,7 @@ import type { ActingStaff } from "../actingStaff";
 import { confirmBatch, createDraft } from "../batch-book/service";
 import { db } from "../db/client";
 import { auditLogEntries, batchRecords, departments, stageDefinitions, stageTransitions, staff } from "../db/schema";
-import { claimBatch, failBatch, forwardBatch, getStageQueue, sendBatchBack } from "./service";
+import { claimBatch, failBatch, forwardBatch, getStageQueue, reassignBatch, sendBatchBack } from "./service";
 
 const RUN = Boolean(process.env.DATABASE_URL);
 if (!RUN) {
@@ -25,8 +25,9 @@ describe.skipIf(!RUN)("MES service (integration)", () => {
   const operator: ActingStaff = { id: "test_mes_operator", role: "production" };
   const otherOperator: ActingStaff = { id: "test_mes_other", role: "production" };
   // Runs stage 4 (Supervisor Material Check): assigns the check to an
-  // operator who works the floor, then moves the batch on themselves.
-  const supervisor: ActingStaff = { id: "test_mes_supervisor", role: "production" };
+  // operator who works the floor, then moves the batch on themselves. The
+  // only app user at that station — pinned to it.
+  const supervisor: ActingStaff = { id: "test_mes_supervisor", role: "production", mesStage: 4 };
 
   let departmentId: string;
   let stage1Id: string;
@@ -47,7 +48,13 @@ describe.skipIf(!RUN)("MES service (integration)", () => {
           role: otherOperator.role,
           email: "test.mes.other@example.test",
         },
-        { id: supervisor.id, name: "Test Supervisor", role: supervisor.role, email: "test.mes.supervisor@example.test" },
+        {
+          id: supervisor.id,
+          name: "Test Supervisor",
+          role: supervisor.role,
+          email: "test.mes.supervisor@example.test",
+          mesStage: 4,
+        },
       ])
       .onConflictDoNothing({ target: staff.id });
 
@@ -229,9 +236,9 @@ describe.skipIf(!RUN)("MES service (integration)", () => {
     await forwardBatch(stage2Id, batch.id, operator); // stage 3
     await claimBatch(stage3Id, batch.id, operator);
     await forwardBatch(stage3Id, batch.id, operator); // stage 4, which has fail authority
-    await claimBatch(stage4Id, batch.id, operator);
+    await claimBatch(stage4Id, batch.id, supervisor, operator.id);
 
-    const failed = await failBatch(stage4Id, batch.id, operator, "raw material contamination found");
+    const failed = await failBatch(stage4Id, batch.id, supervisor, "raw material contamination found");
     expect(failed.status).toBe("FAILED");
     expect(failed.currentStageId).toBeNull();
 
@@ -253,7 +260,7 @@ describe.skipIf(!RUN)("MES service (integration)", () => {
     await forwardBatch(stage2Id, forwarded.id, operator); // stage 3
     await claimBatch(stage3Id, forwarded.id, operator);
     await forwardBatch(stage3Id, forwarded.id, operator); // stage 4
-    await claimBatch(stage4Id, forwarded.id, otherOperator); // assigned to the floor operator
+    await claimBatch(stage4Id, forwarded.id, supervisor, otherOperator.id); // assigned to the floor operator
     const movedOn = await forwardBatch(stage4Id, forwarded.id, supervisor);
     expect(movedOn.currentStageId).not.toBe(stage4Id);
 
@@ -262,7 +269,7 @@ describe.skipIf(!RUN)("MES service (integration)", () => {
     await forwardBatch(stage2Id, sentBack.id, operator);
     await claimBatch(stage3Id, sentBack.id, operator);
     await forwardBatch(stage3Id, sentBack.id, operator);
-    await claimBatch(stage4Id, sentBack.id, otherOperator);
+    await claimBatch(stage4Id, sentBack.id, supervisor, otherOperator.id);
     const returned = await sendBatchBack(stage4Id, sentBack.id, supervisor, "recheck the picking slip");
     expect(returned.currentStageId).toBe(stage3Id);
 
@@ -271,8 +278,52 @@ describe.skipIf(!RUN)("MES service (integration)", () => {
     await forwardBatch(stage2Id, failed.id, operator);
     await claimBatch(stage3Id, failed.id, operator);
     await forwardBatch(stage3Id, failed.id, operator);
-    await claimBatch(stage4Id, failed.id, otherOperator);
+    await claimBatch(stage4Id, failed.id, supervisor, otherOperator.id);
     const result = await failBatch(stage4Id, failed.id, supervisor, "contamination found on inspection");
     expect(result.status).toBe("FAILED");
+  });
+  it("at a supervised stage, only its supervisor acts, and always by assigning a named operator", async () => {
+    const batch = await confirmedBatchAtStage2();
+    await claimBatch(stage2Id, batch.id, operator);
+    await forwardBatch(stage2Id, batch.id, operator);
+    await claimBatch(stage3Id, batch.id, operator);
+    await forwardBatch(stage3Id, batch.id, operator); // stage 4
+
+    // An ordinary operator can't run the station, even to assign someone.
+    await expect(claimBatch(stage4Id, batch.id, operator)).rejects.toThrow(/supervisor/i);
+    await expect(claimBatch(stage4Id, batch.id, operator, otherOperator.id)).rejects.toThrow(/supervisor/i);
+    // The supervisor can't self-claim either — that would log them as the operator.
+    await expect(claimBatch(stage4Id, batch.id, supervisor)).rejects.toThrow(/which operator/i);
+
+    await claimBatch(stage4Id, batch.id, supervisor, otherOperator.id);
+    // Nor can the assigned floor operator move it on — that's the supervisor's call.
+    await expect(forwardBatch(stage4Id, batch.id, otherOperator)).rejects.toThrow(/supervisor/i);
+    await forwardBatch(stage4Id, batch.id, supervisor);
+  });
+
+  it("handing a batch over splits the time between operators but keeps the visit's start", async () => {
+    const batch = await confirmedBatchAtStage2();
+    await claimBatch(stage2Id, batch.id, operator);
+    await forwardBatch(stage2Id, batch.id, operator);
+    await claimBatch(stage3Id, batch.id, operator);
+    await forwardBatch(stage3Id, batch.id, operator); // stage 4
+
+    await claimBatch(stage4Id, batch.id, supervisor, operator.id);
+    await reassignBatch(stage4Id, batch.id, supervisor, otherOperator.id);
+    await forwardBatch(stage4Id, batch.id, supervisor);
+
+    const rows = await db
+      .select()
+      .from(stageTransitions)
+      .where(and(eq(stageTransitions.batchId, batch.id), eq(stageTransitions.stageId, stage4Id)))
+      .orderBy(stageTransitions.receivedAt);
+    expect(rows.map((r) => [r.operatorId, r.outcome])).toEqual([
+      [operator.id, "REASSIGNED"],
+      [otherOperator.id, "FORWARD"],
+    ]);
+    // Each operator's own share starts when they got it…
+    expect(rows[1].receivedAt.getTime()).toBe(rows[0].completedAt!.getTime());
+    // …but the visit as a whole is timed from the first assignment.
+    expect(rows[1].visitStartedAt!.getTime()).toBe(rows[0].receivedAt.getTime());
   });
 });

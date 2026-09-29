@@ -103,3 +103,34 @@ export function canFail(staff: ActingStaff, stage: StageForAuth, notes: string |
   }
   return { ok: true };
 }
+
+/**
+ * Who may run a supervised station (Check 4). Its floor operators never use
+ * the app — the supervisor assigns each batch to one of them (so we know how
+ * long each operator takes over each product) and moves it on once they
+ * report back. So every action there is the supervisor's: the account
+ * pinned to that station, or an admin. Anywhere else this adds nothing —
+ * the ordinary rules apply.
+ */
+export function canRunStation(
+  staff: ActingStaff,
+  stage: Pick<StageForAuth, "sequenceNumber" | "supervised">,
+): Verdict {
+  if (!stage.supervised || staff.role === "admin" || staff.mesStage === stage.sequenceNumber) return { ok: true };
+  return { ok: false, error: "Only this station's supervisor can do that here." };
+}
+
+/**
+ * At a supervised station a batch is always started by assigning it to a
+ * named operator — never self-claimed, which would record the supervisor as
+ * the one who did the work and skew that operator timing.
+ */
+export function checkAssignee(
+  stage: Pick<StageForAuth, "supervised">,
+  assignToOperatorId: string | null | undefined,
+): Verdict {
+  if (stage.supervised && !assignToOperatorId) {
+    return { ok: false, error: "Choose which operator is doing this batch." };
+  }
+  return { ok: true };
+}
