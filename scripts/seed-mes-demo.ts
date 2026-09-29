@@ -46,30 +46,45 @@ const ADMIN: ActingStaff = { id: "staff_admin", role: "admin" };
 const SUPERVISOR: ActingStaff = { id: "staff_stage_4", role: "production", mesStage: 4 };
 const SUPERVISED_STAGE = 4;
 
-/** Who's working each station's held batch at the end. Check 4's is a floor
- *  operator assigned by the supervisor (not in POOL, so never double-booked). */
+/** Who's working each station's held batch at the end — each the right
+ *  kind of operator for that station, and in no POOL (so never double-booked).
+ *  Check 4's is a Bespoke production operator assigned by the supervisor. */
 const STATION: Record<number, ActingStaff> = {
-  2: { id: "staff_stage_2", role: "production" },
-  3: { id: "staff_stage_3", role: "production" },
-  4: { id: "staff_eng", role: "production" },
+  2: { id: "staff_stage_2", role: "production" }, // Order processing operator
+  3: { id: "staff_stage_3", role: "production" }, // Dispensary technician
+  4: { id: "staff_prod_1", role: "production" }, // Bespoke production operator
   5: { id: "staff_stage_5", role: "production" },
   6: { id: "staff_stage_6", role: "qa" },
   7: { id: "staff_stage_7", role: "production" },
 };
 
-/** Operators who move batches through earlier stages. Every claim they make
- *  is closed straight away, so they never hold anything open. */
-const POOL: ActingStaff[] = [
-  { id: "staff_prod_1", role: "production" },
-  { id: "staff_prod_2", role: "production" },
-  { id: "staff_prod_3", role: "production" },
-  { id: "staff_float_3", role: "production" },
-  { id: "staff_qa_1", role: "qa" },
-  { id: "staff_qa_2", role: "qa" },
-  { id: "staff_float_4", role: "qa" },
-];
+/** Operators who move batches through each stage. Every claim they make is
+ *  closed straight away, so they never hold anything open. Checks 2-4 only
+ *  take one kind of operator each: Order processing (2), Dispensary (3),
+ *  Bespoke production (4). */
+const POOL: Record<number, ActingStaff[]> = {
+  2: [{ id: "staff_float_1", role: "production" }],
+  3: [{ id: "staff_prod_2", role: "production" }],
+  4: [
+    { id: "staff_prod_3", role: "production" },
+    { id: "staff_float_3", role: "production" },
+  ],
+  5: [
+    { id: "staff_prod_3", role: "production" },
+    { id: "staff_float_3", role: "production" },
+    { id: "staff_qa_1", role: "qa" },
+  ],
+  6: [
+    { id: "staff_qa_1", role: "qa" },
+    { id: "staff_qa_2", role: "qa" },
+  ],
+  7: [
+    { id: "staff_wh", role: "production" },
+    { id: "staff_qa_2", role: "qa" },
+  ],
+};
 let poolIndex = 0;
-const nextOperator = () => POOL[poolIndex++ % POOL.length];
+const nextOperator = (stage: number) => POOL[stage][poolIndex++ % POOL[stage].length];
 
 /**
  * Starts a batch at a stage with `operator` doing the work, and returns who
@@ -175,7 +190,7 @@ async function main() {
    *  and forwarded straight away by a pool operator. */
   async function advance(batchId: string, from: number, target: number) {
     for (let stage = from; stage < target; stage++) {
-      const actor = await start(stageId(stage), stage, batchId, nextOperator());
+      const actor = await start(stageId(stage), stage, batchId, nextOperator(stage));
       await forwardBatch(stageId(stage), batchId, actor);
     }
   }
@@ -194,7 +209,7 @@ async function main() {
     if (station <= 6) {
       const batch = await enterBatch();
       await advance(batch.id, 2, station + 1);
-      const reviewer = await start(stageId(station + 1), station + 1, batch.id, nextOperator());
+      const reviewer = await start(stageId(station + 1), station + 1, batch.id, nextOperator(station + 1));
       await sendBatchBack(stageId(station + 1), batch.id, reviewer, REWORK_REASONS[station + 1]);
       created++;
     }
@@ -204,7 +219,7 @@ async function main() {
   for (let i = 0; i < 3; i++) {
     const batch = await enterBatch();
     await advance(batch.id, 2, 7);
-    const operator = nextOperator();
+    const operator = nextOperator(7);
     await claimBatch(stageId(7), batch.id, operator);
     await forwardBatch(stageId(7), batch.id, operator); // -> COMPLETED
     created++;
@@ -215,7 +230,7 @@ async function main() {
   ] as const) {
     const batch = await enterBatch();
     await advance(batch.id, 2, failAt);
-    const actor = await start(stageId(failAt), failAt, batch.id, nextOperator());
+    const actor = await start(stageId(failAt), failAt, batch.id, nextOperator(failAt));
     await failBatch(stageId(failAt), batch.id, actor, reason);
     created++;
   }
@@ -247,8 +262,8 @@ async function main() {
     created++;
   }
   for (const [station, holderId] of [
-    [3, "staff_float_1"],
     [5, "staff_float_2"],
+    [6, "staff_float_4"],
   ] as const) {
     const batch = await enterBatch();
     await advance(batch.id, 2, station);

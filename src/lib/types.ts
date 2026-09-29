@@ -175,7 +175,26 @@ export interface StaffMember extends Entity {
    * every stage.
    */
   mesStage?: number | null;
+  /**
+   * Which kind of MES operator this person is, if any. Some stations only
+   * accept one kind — see `StageDefinition.operatorRole` in src/lib/mes.ts
+   * — so a batch there can only be assigned to (or claimed by) someone of
+   * that type. Set on the Team page.
+   */
+  operatorRole?: OperatorRole | null;
 }
+
+/* -------------------------------------------------------------------------- */
+/* MES operator types                                                         */
+/* -------------------------------------------------------------------------- */
+
+export type OperatorRole = "order_processing" | "dispensary" | "bespoke_production";
+
+export const OPERATOR_ROLES: Record<OperatorRole, { label: string; plural: string }> = {
+  order_processing: { label: "Order processing operator", plural: "Order processing operators" },
+  dispensary: { label: "Dispensary technician", plural: "Dispensary technicians" },
+  bespoke_production: { label: "Bespoke production operator", plural: "Bespoke production operators" },
+};
 
 /* -------------------------------------------------------------------------- */
 /* Tasks                                                                      */

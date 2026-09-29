@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "./apiClient";
 import { useAuth } from "./auth";
 import type { BatchRecord } from "./batchBook";
+import type { OperatorRole } from "./types";
 
 export interface StageDefinition {
   id: string;
@@ -20,6 +21,9 @@ export interface StageDefinition {
   /** A station whose supervisor moves batches on for operators who don't use
    *  the app — see the `supervised` column on stage_definitions. */
   supervised: boolean;
+  /** Only operators of this type may be assigned (or claim) here; null
+   *  means anyone who can operate the MES. */
+  operatorRole: OperatorRole | null;
 }
 
 export interface InProgressEntry {

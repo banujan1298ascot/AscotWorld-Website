@@ -90,6 +90,27 @@ supervisor sends the batch on.
 This is a property of the *stage*, not a role, the same way `fail_authority`
 is: a department could have more than one supervised station.
 
+### Which operators each station takes
+
+Confirmed 2026-09-29: some stations only take one kind of operator.
+
+| Station | Only these can be assigned (or claim) |
+|---|---|
+| 2 · Order/Calculation Check | Order processing operators |
+| 3 · Raw Material Picking (the Dispensary) | Dispensary technicians |
+| 4 · Supervisor Material Check | Bespoke production operators |
+| 5–7 | Anyone who can operate the MES |
+
+`stage_definitions.operator_role` holds each station's requirement;
+`staff.operator_role` holds each person's type, set on the **Team page**
+("MES operator type" — a fixed list, not the free-text job title, so a typo
+can't lock someone out) and synced to the server when saved.
+`checkOperatorRole` (`src/server/mes/validation.ts`) is checked on every
+claim, assignment and handover — including a self-claim, so someone who
+isn't the right type can't take the batch themselves either. The board and
+table only ever offer eligible people, and show "Assign operator" instead of
+"Claim" to anyone who isn't the station's kind of operator.
+
 ### Handing a batch to another operator
 
 `reassignBatch` closes the first operator's row (outcome `REASSIGNED`) and

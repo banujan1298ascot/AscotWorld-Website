@@ -24,6 +24,9 @@ export const staff = pgTable("staff", {
    *  on the Team page — the server needs it to know who runs a supervised
    *  station. Null for anyone who isn't tied to one station. */
   mesStage: integer("mes_stage"),
+  /** Which kind of MES operator they are, if any (see OperatorRole in
+   *  src/lib/types.ts) — some stations only accept one kind. */
+  operatorRole: text("operator_role"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

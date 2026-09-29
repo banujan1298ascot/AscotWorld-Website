@@ -11,9 +11,9 @@
  * into an empty messages table — a few demo conversations.
  */
 import "dotenv/config";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "./client";
-import { conversationParticipants, conversations, departments, messages, staff, stageDefinitions } from "./schema";
+import { appRecords, conversationParticipants, conversations, departments, messages, staff, stageDefinitions } from "./schema";
 
 const STAFF = [
   { id: "staff_admin", name: "Priya Raman", role: "admin" as const, department: "Management", email: "p.raman@ascotworld.example" },
@@ -50,16 +50,77 @@ const STAFF = [
  *  has fail authority (spec 3.2); only Check 6 releases onward to Warehouse. */
 const BESPOKE_STAGES = [
   { sequenceNumber: 1, name: "Batch Book Entry", failAuthority: false, isTerminalReleaseStage: false, supervised: false },
-  { sequenceNumber: 2, name: "Order/Calculation Check", failAuthority: false, isTerminalReleaseStage: false, supervised: false },
-  { sequenceNumber: 3, name: "Raw Material Picking", failAuthority: false, isTerminalReleaseStage: false, supervised: false },
+  // Each of Checks 2-4 only takes one kind of operator (`operatorRole`).
+  {
+    sequenceNumber: 2,
+    name: "Order/Calculation Check",
+    failAuthority: false,
+    isTerminalReleaseStage: false,
+    supervised: false,
+    operatorRole: "order_processing",
+  },
+  {
+    sequenceNumber: 3,
+    name: "Raw Material Picking",
+    failAuthority: false,
+    isTerminalReleaseStage: false,
+    supervised: false,
+    operatorRole: "dispensary",
+  },
   // The supervisor is the only person at this station using the app: they
   // assign the check to an operator on the floor and move the batch on
   // themselves. See `supervised` in the stage_definitions schema.
-  { sequenceNumber: 4, name: "Supervisor Material Check", failAuthority: true, isTerminalReleaseStage: false, supervised: true },
+  {
+    sequenceNumber: 4,
+    name: "Supervisor Material Check",
+    failAuthority: true,
+    isTerminalReleaseStage: false,
+    supervised: true,
+    operatorRole: "bespoke_production",
+  },
   { sequenceNumber: 5, name: "Production Check", failAuthority: true, isTerminalReleaseStage: false, supervised: false },
   { sequenceNumber: 6, name: "Final QA Release", failAuthority: true, isTerminalReleaseStage: true, supervised: false },
   { sequenceNumber: 7, name: "Warehouse", failAuthority: false, isTerminalReleaseStage: false, supervised: false },
 ];
+
+/**
+ * The demo team's MES operator types, and the job titles that go with them —
+ * enough of each kind for the stations that need one: Order processing
+ * operators (Check 2), Dispensary technicians (Check 3) and Bespoke
+ * production operators (Check 4).
+ */
+const DEMO_OPERATOR_TYPES: Record<string, { operatorRole: string; jobTitle?: string }> = {
+  staff_stage_2: { operatorRole: "order_processing" },
+  staff_float_1: { operatorRole: "order_processing", jobTitle: "Order Processing Operator" },
+  staff_stage_3: { operatorRole: "dispensary" },
+  staff_prod_2: { operatorRole: "dispensary", jobTitle: "Dispensary Technician" },
+  staff_prod_1: { operatorRole: "bespoke_production", jobTitle: "Senior Bespoke Production Operator" },
+  staff_prod_3: { operatorRole: "bespoke_production", jobTitle: "Bespoke Production Operator" },
+  staff_float_2: { operatorRole: "bespoke_production", jobTitle: "Bespoke Production Operator" },
+  staff_float_3: { operatorRole: "bespoke_production", jobTitle: "Bespoke Production Operator" },
+};
+
+/**
+ * Gives the demo team their operator types — on the server's staff table,
+ * and on the shared Team-page records if they've already been created (only
+ * the first time: once a record has a type, it's the Team page's to change).
+ */
+async function seedOperatorTypes(): Promise<void> {
+  for (const [id, { operatorRole, jobTitle }] of Object.entries(DEMO_OPERATOR_TYPES)) {
+    await db.update(staff).set({ operatorRole }).where(eq(staff.id, id));
+    const patch = jobTitle ? { operatorRole, jobTitle } : { operatorRole };
+    await db
+      .update(appRecords)
+      .set({ data: sql`${appRecords.data} || ${JSON.stringify(patch)}::jsonb`, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(appRecords.collection, "staff"),
+          eq(appRecords.id, id),
+          sql`NOT (${appRecords.data} ? 'operatorRole')`,
+        ),
+      );
+  }
+}
 
 /** At `daysAgo` days back, `hour:minute` — keeps the demo threads recent. */
 function at(daysAgo: number, hour: number, minute = 0): Date {
@@ -173,9 +234,12 @@ async function main() {
           failAuthority: stage.failAuthority,
           isTerminalReleaseStage: stage.isTerminalReleaseStage,
           supervised: stage.supervised,
+          operatorRole: "operatorRole" in stage ? stage.operatorRole : null,
         },
       });
   }
+
+  await seedOperatorTypes();
 
   const threads = await seedDemoConversations();
 

@@ -36,6 +36,7 @@ function makeStage(id: string): StageDefinition {
     failAuthority: false,
     isTerminalReleaseStage: false,
     supervised: false,
+    operatorRole: null,
   };
 }
 

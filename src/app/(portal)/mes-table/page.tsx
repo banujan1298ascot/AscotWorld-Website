@@ -22,7 +22,7 @@ import { useDepartments, type BatchRecord } from "@/lib/batchBook";
 import { useAllStageQueues, useStages, type StageDefinition } from "@/lib/mes";
 import { staffCollection } from "@/lib/seed";
 import { useCollection } from "@/lib/storage";
-import { roleCan, type StaffMember } from "@/lib/types";
+import { OPERATOR_ROLES, roleCan, type StaffMember } from "@/lib/types";
 
 /* ============================================================================
  * MES — table view (trial)
@@ -142,6 +142,10 @@ export default function MesTablePage() {
   const runsStation = (stage: StageDefinition) =>
     !stage.supervised || user.role === "admin" || user.mesStage === stage.sequenceNumber;
   const mayOperate = (stage: StageDefinition) => can("mes.claim") && runsStation(stage);
+  /** Can the signed-in person take a batch at this station themselves? Not
+   *  at a supervised one, and only if they're the kind of operator it takes. */
+  const canSelfClaim = (stage: StageDefinition) =>
+    !stage.supervised && (!stage.operatorRole || user.operatorRole === stage.operatorRole);
   /** Who may move an in-progress batch on — its holder, or a supervised
    *  station's supervisor (the board's rule, enforced again by the server). */
   const canAct = (row: Row) =>
@@ -154,6 +158,8 @@ export default function MesTablePage() {
     staff
       .filter((s) => roleCan(s.role, "mes.claim"))
       .filter((s) => s.mesStage == null || (s.mesStage === stage.sequenceNumber && !stage.supervised))
+      // Stations that only take one kind of operator (Checks 2-4).
+      .filter((s) => !stage.operatorRole || s.operatorRole === stage.operatorRole)
       .sort((a, b) => Number(a.mesStage == null) - Number(b.mesStage == null) || a.name.localeCompare(b.name));
 
   async function apply(current: Change, reason: string) {
@@ -300,6 +306,7 @@ export default function MesTablePage() {
                       pending={change?.row.batch.id === row.batch.id}
                       operators={operatorsFor(row.stage)}
                       mayOperate={mayOperate(row.stage)}
+                      canSelfClaim={canSelfClaim(row.stage)}
                       canAct={canAct(row)}
                       nextStage={stageBySequence(row.stage.sequenceNumber + 1)}
                       previousStage={row.stage.sequenceNumber >= 3 ? stageBySequence(row.stage.sequenceNumber - 1) : undefined}
@@ -354,6 +361,7 @@ function TableRow({
   pending,
   operators,
   mayOperate,
+  canSelfClaim,
   canAct,
   nextStage,
   previousStage,
@@ -363,6 +371,9 @@ function TableRow({
   pending: boolean;
   operators: StaffMember[];
   mayOperate: boolean;
+  /** Whether "start it myself" (and send back / fail from waiting, which
+   *  start it first) is on offer — see the page's canSelfClaim. */
+  canSelfClaim: boolean;
   canAct: boolean;
   nextStage: StageDefinition | undefined;
   previousStage: StageDefinition | undefined;
@@ -429,6 +440,11 @@ function TableRow({
             className={CELL_SELECT}
           >
             {waiting ? <option value="">Unassigned</option> : null}
+            {operatorOptions.length === 0 && stage.operatorRole ? (
+              <option value="" disabled>
+                No {OPERATOR_ROLES[stage.operatorRole].plural.toLowerCase()} on the team
+              </option>
+            ) : null}
             {operatorOptions.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.name}
@@ -464,12 +480,12 @@ function TableRow({
             {/* At a supervised station a batch starts by being assigned to an
                 operator (the "Assigned to" column), and is only sent back or
                 failed once someone's on it — so their time is recorded. */}
-            {waiting && !stage.supervised ? <option value="start">In progress (start it myself)</option> : null}
+            {waiting && canSelfClaim ? <option value="start">In progress (start it myself)</option> : null}
             {!waiting ? <option value="forward">{forwardLabel}</option> : null}
-            {previousStage && !(waiting && stage.supervised) ? (
+            {previousStage && !(waiting && !canSelfClaim) ? (
               <option value="send-back">Send back to {previousStage.name}…</option>
             ) : null}
-            {stage.failAuthority && !(waiting && stage.supervised) ? <option value="fail">Fail batch…</option> : null}
+            {stage.failAuthority && !(waiting && !canSelfClaim) ? <option value="fail">Fail batch…</option> : null}
           </select>
         </div>
       </td>

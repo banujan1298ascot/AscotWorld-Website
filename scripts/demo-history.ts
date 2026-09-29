@@ -24,20 +24,22 @@ type Product = Omit<CreateDraftInput, "departmentId">;
  *  the station's norm (1 = typical) — so the per-operator breakdown has
  *  real differences to show. */
 const OPERATORS: Record<number, { id: string; speed: number }[]> = {
+  // Order processing operators
   2: [
     { id: "staff_stage_2", speed: 0.85 },
-    { id: "staff_prod_1", speed: 1.05 },
-    { id: "staff_float_1", speed: 1.3 },
+    { id: "staff_float_1", speed: 1.25 },
   ],
+  // Dispensary technicians
   3: [
     { id: "staff_stage_3", speed: 0.9 },
-    { id: "staff_prod_2", speed: 1.0 },
-    { id: "staff_float_3", speed: 1.25 },
+    { id: "staff_prod_2", speed: 1.1 },
   ],
+  // Bespoke production operators, assigned by the Check 4 supervisor
   4: [
     { id: "staff_prod_3", speed: 0.95 },
     { id: "staff_float_2", speed: 1.15 },
     { id: "staff_float_3", speed: 1.05 },
+    { id: "staff_prod_1", speed: 0.85 },
   ],
   5: [
     { id: "staff_stage_5", speed: 0.9 },

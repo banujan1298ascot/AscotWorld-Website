@@ -33,6 +33,12 @@ export const stageDefinitions = pgTable(
      * who may complete it.
      */
     supervised: boolean("supervised").notNull().default(false),
+    /**
+     * Only operators of this type (staff.operator_role) may be assigned to or
+     * claim a batch here — e.g. Raw Material Picking takes Dispensary
+     * technicians only. Null means anyone who can operate the MES.
+     */
+    operatorRole: text("operator_role"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

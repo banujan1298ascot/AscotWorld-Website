@@ -135,20 +135,31 @@ export async function resetAll(caller: Caller): Promise<void> {
 const ROLES: Role[] = ["admin", "production", "qa", "viewer"];
 
 async function mirrorStaff(person: Data): Promise<void> {
-  const { id, name, role, department, email, mesStage } = person as {
+  const { id, name, role, department, email, mesStage, operatorRole } = person as {
     id: string;
     name?: string;
     role?: string;
     department?: string;
     email?: string;
     mesStage?: number | null;
+    operatorRole?: string | null;
   };
   const station = typeof mesStage === "number" ? mesStage : null;
+  const operatorType = typeof operatorRole === "string" && operatorRole ? operatorRole : null;
   if (!name || !email || !ROLES.includes(role as Role)) return;
   try {
     await db
       .insert(staff)
-      .values({ id, name, role: role as Role, department: department ?? null, email, mesStage: station, isActive: true })
+      .values({
+        id,
+        name,
+        role: role as Role,
+        department: department ?? null,
+        email,
+        mesStage: station,
+        operatorRole: operatorType,
+        isActive: true,
+      })
       .onConflictDoUpdate({
         target: staff.id,
         set: {
@@ -157,6 +168,7 @@ async function mirrorStaff(person: Data): Promise<void> {
           department: department ?? null,
           email,
           mesStage: station,
+          operatorRole: operatorType,
           isActive: true,
           updatedAt: sql`now()`,
         },

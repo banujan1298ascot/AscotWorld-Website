@@ -20,6 +20,7 @@ import {
   canRunStation,
   canSendBack,
   checkAssignee,
+  checkOperatorRole,
   type StageForAuth,
 } from "./validation";
 
@@ -136,10 +137,12 @@ export async function claimBatch(
       if (!verdict.ok) throw new ApiError(403, verdict.error);
     }
 
-    if (operatorId !== actingStaff.id) {
-      const [assignee] = await tx.select().from(staff).where(eq(staff.id, operatorId)).limit(1);
-      if (!assignee) throw new ApiError(422, "That operator doesn't exist.");
-    }
+    // Self-claims included: the person who'll hold the batch must be the
+    // kind of operator this station takes.
+    const [assignee] = await tx.select().from(staff).where(eq(staff.id, operatorId)).limit(1);
+    if (!assignee) throw new ApiError(422, "That operator doesn't exist.");
+    const eligible = checkOperatorRole(stage, assignee);
+    if (!eligible.ok) throw new ApiError(422, eligible.error);
 
     const [batch] = await tx.select().from(batchRecords).where(eq(batchRecords.id, batchId)).limit(1).for("update");
     if (!batch) throw new ApiError(404, "Batch not found.");
@@ -197,6 +200,8 @@ export async function reassignBatch(
     const stage = await requireStage(tx, stageId);
     const station = canRunStation(actingStaff, stage);
     if (!station.ok) throw new ApiError(403, station.error);
+    const eligible = checkOperatorRole(stage, assignee);
+    if (!eligible.ok) throw new ApiError(422, eligible.error);
     const openTransition = await requireOpenTransition(tx, stageId, batchId);
     const ownership = canActOnTransition(actingStaff, openTransition, stage);
     if (!ownership.ok) throw new ApiError(403, ownership.error);

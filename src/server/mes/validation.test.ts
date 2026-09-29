@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canActOnTransition, canClaim, canFail, canForward, canRunStation, canSendBack, checkAssignee } from "./validation";
+import { canActOnTransition, canClaim, canFail, canForward, canRunStation, canSendBack, checkAssignee, checkOperatorRole } from "./validation";
 
 const prodStaff = { id: "staff_prod_1", role: "production" as const };
 const otherProdStaff = { id: "staff_prod_2", role: "production" as const };
@@ -127,5 +127,21 @@ describe("checkAssignee", () => {
 
   it("allows a self-claim anywhere else", () => {
     expect(checkAssignee({ supervised: false }, null).ok).toBe(true);
+  });
+});
+
+describe("checkOperatorRole", () => {
+  const dispensary = { name: "Raw Material Picking", operatorRole: "dispensary" };
+
+  it("only lets the station's kind of operator take a batch", () => {
+    expect(checkOperatorRole(dispensary, { name: "Marta", operatorRole: "dispensary" }).ok).toBe(true);
+    const refused = checkOperatorRole(dispensary, { name: "Daniel", operatorRole: "bespoke_production" });
+    expect(refused.ok).toBe(false);
+    expect(!refused.ok && refused.error).toMatch(/Dispensary technicians.*Daniel isn't one/);
+    expect(checkOperatorRole(dispensary, { name: "Priya", operatorRole: null }).ok).toBe(false);
+  });
+
+  it("lets anyone through where the station has no requirement", () => {
+    expect(checkOperatorRole({ name: "Production Check", operatorRole: null }, { name: "X", operatorRole: null }).ok).toBe(true);
   });
 });

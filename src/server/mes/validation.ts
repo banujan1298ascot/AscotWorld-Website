@@ -3,7 +3,7 @@
  * split as batch-book/validation.ts: no DB here, so "who may do what" is
  * unit-testable directly.
  */
-import { roleCan } from "@/lib/types";
+import { OPERATOR_ROLES, roleCan, type OperatorRole } from "@/lib/types";
 import type { ActingStaff } from "../actingStaff";
 
 export type Verdict = { ok: true } | { ok: false; error: string };
@@ -133,4 +133,20 @@ export function checkAssignee(
     return { ok: false, error: "Choose which operator is doing this batch." };
   }
   return { ok: true };
+}
+
+/**
+ * Some stations only take one kind of operator (stage_definitions.operator_role):
+ * Order processing operators at Check 2, Dispensary technicians at Check 3,
+ * Bespoke production operators at Check 4. Whoever a batch is assigned to —
+ * or whoever claims it themselves — must be that kind.
+ */
+export function checkOperatorRole(
+  stage: { name: string; operatorRole: string | null },
+  operator: { name: string; operatorRole: string | null },
+): Verdict {
+  if (!stage.operatorRole || operator.operatorRole === stage.operatorRole) return { ok: true };
+  const needed = OPERATOR_ROLES[stage.operatorRole as OperatorRole];
+  const kind = needed ? needed.plural : "operators of the right type";
+  return { ok: false, error: `Only ${kind} can take batches at ${stage.name} — ${operator.name} isn't one.` };
 }

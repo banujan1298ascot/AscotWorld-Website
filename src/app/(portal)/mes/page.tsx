@@ -36,7 +36,7 @@ import { useStageArrivalAlerts } from "@/lib/mesAlerts";
 import { staffCollection } from "@/lib/seed";
 import { isAudioUnlocked, unlockAudio, useSoundAlertsEnabled } from "@/lib/soundAlerts";
 import { useCollection } from "@/lib/storage";
-import { roleCan, type StaffMember } from "@/lib/types";
+import { OPERATOR_ROLES, roleCan, type StaffMember } from "@/lib/types";
 
 /** How long a press has to be held before the assign picker opens. Kept in
  *  step with the `hold-progress` animation in globals.css. */
@@ -141,6 +141,8 @@ export default function MesPipelinePage() {
         .filter(
           (s) => s.mesStage == null || (s.mesStage === currentStage?.sequenceNumber && !currentStage?.supervised),
         )
+        // Stations that only take one kind of operator (Checks 2-4).
+        .filter((s) => !currentStage?.operatorRole || s.operatorRole === currentStage.operatorRole)
         .sort((a, b) => {
           const aPinned = a.mesStage != null ? 0 : 1;
           const bPinned = b.mesStage != null ? 0 : 1;
@@ -156,6 +158,12 @@ export default function MesPipelinePage() {
    *  server enforces the same rule. */
   const runsStation = !supervised || user.role === "admin" || user.mesStage === currentStage?.sequenceNumber;
   const mayOperate = can("mes.claim") && runsStation;
+  /** Can the signed-in person take a batch here themselves? Never at a
+   *  supervised station, and only if they're the kind of operator this
+   *  station takes — otherwise starting a batch means assigning someone. */
+  const canSelfClaim =
+    !supervised && (!currentStage?.operatorRole || user.operatorRole === currentStage.operatorRole);
+  const operatorKind = currentStage?.operatorRole ? OPERATOR_ROLES[currentStage.operatorRole] : null;
 
   const allBatches = queue ? [...queue.incoming, ...queue.returned, ...queue.inProgress.map((e) => e.batch)] : [];
   const batchById = (id: string) => allBatches.find((b) => b.id === id);
@@ -186,8 +194,9 @@ export default function MesPipelinePage() {
     if (!batch || !zone) return;
     if (zone === "zone-claim" && isUnclaimed(batch.id)) {
       // Starting a batch at a supervised station always means choosing who
-      // does it — never the supervisor claiming it themselves.
-      if (supervised) setAssigningBatchId(batch.id);
+      // does it — never the supervisor claiming it themselves. Same for
+      // anyone who isn't the kind of operator this station takes.
+      if (!canSelfClaim) setAssigningBatchId(batch.id);
       else setPendingMove({ action: "claim", batch });
     }
     else if (zone === "zone-forward" && canActOn(batch.id)) setPendingMove({ action: "forward", batch });
@@ -373,7 +382,7 @@ export default function MesPipelinePage() {
                     >
                       {mayOperate ? (
                         <div className="flex flex-wrap items-center gap-1.5">
-                          {supervised ? (
+                          {!canSelfClaim ? (
                             <Button variant="secondary" onClick={() => setAssigningBatchId(batch.id)}>
                               Assign operator
                             </Button>
@@ -476,7 +485,8 @@ export default function MesPipelinePage() {
           canFail={Boolean(currentStage?.failAuthority)}
           // Send back / fail on a waiting batch would claim it as the
           // supervisor — at a supervised station, assign an operator first.
-          mustAssignFirst={supervised && isUnclaimed(holdMenuBatch.id)}
+          mustAssignFirst={!canSelfClaim && isUnclaimed(holdMenuBatch.id)}
+          canClaimSelf={canSelfClaim}
           stageNumber={currentStage?.sequenceNumber ?? 0}
           onClose={() => setHoldMenuBatch(null)}
           onForward={async () => {
@@ -507,6 +517,7 @@ export default function MesPipelinePage() {
       {assigningBatchId ? (
         <AssignOperatorModal
           operators={assignableOperators}
+          requirement={operatorKind?.plural ?? null}
           stageName={currentStage?.name ?? "this stage"}
           supervised={Boolean(currentStage?.supervised)}
           onCancel={() => setAssigningBatchId(null)}
@@ -674,6 +685,7 @@ function BatchActionsModal({
   canFail,
   stageNumber,
   mustAssignFirst = false,
+  canClaimSelf = true,
   onClose,
   onAssign,
   onClaim,
@@ -692,6 +704,8 @@ function BatchActionsModal({
   stageNumber: number;
   /** A supervised station's waiting batch: it can only be assigned. */
   mustAssignFirst?: boolean;
+  /** False when the caller isn't the kind of operator this station takes. */
+  canClaimSelf?: boolean;
   onClose: () => void;
   onAssign: () => void;
   onClaim: () => void;
@@ -721,7 +735,7 @@ function BatchActionsModal({
           />
         ) : (
           <>
-            {supervised ? null : (
+            {!canClaimSelf ? null : (
               <ActionRow
                 icon={<HandPalm size={20} weight="bold" />}
                 title="Claim it myself"
@@ -816,12 +830,15 @@ function ActionRow({
 
 function AssignOperatorModal({
   operators,
+  requirement = null,
   stageName,
   supervised,
   onCancel,
   onPick,
 }: {
   operators: StaffMember[];
+  /** "Dispensary technicians" etc., when the station only takes one kind. */
+  requirement?: string | null;
   stageName: string;
   supervised: boolean;
   onCancel: () => void;
@@ -850,9 +867,10 @@ function AssignOperatorModal({
       onClose={onCancel}
       title="Assign to an operator"
       description={
-        supervised
+        (supervised
           ? `Who's making it at ${stageName}? Their time runs from now until you send the batch on — that's how we learn how long each operator takes.`
-          : `Whoever you pick holds this batch at ${stageName} — only they can send it on.`
+          : `Whoever you pick holds this batch at ${stageName} — only they can send it on.`) +
+        (requirement ? ` Only ${requirement} can be assigned here.` : "")
       }
       footer={
         <Button variant="secondary" onClick={onCancel} disabled={pickingId !== null}>
@@ -866,7 +884,13 @@ function AssignOperatorModal({
         </div>
       ) : null}
       {operators.length === 0 ? (
-        <PermissionNotice message="Nobody is set up to work this stage yet." />
+        <PermissionNotice
+          message={
+            requirement
+              ? `There are no ${requirement} on the team yet — set someone's operator type on the Team page.`
+              : "Nobody is set up to work this stage yet."
+          }
+        />
       ) : (
         <div className="grid gap-2 sm:grid-cols-2">
           {operators.map((person) => (

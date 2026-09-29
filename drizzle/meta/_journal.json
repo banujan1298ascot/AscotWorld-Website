@@ -43,6 +43,13 @@
       "when": 1790719089055,
       "tag": "0005_right_speed_demon",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790720016946,
+      "tag": "0006_steady_eddie_brock",
+      "breakpoints": true
     }
   ]
 }

@@ -28,7 +28,16 @@ import {
 import { useAuth } from "@/lib/auth";
 import { departmentCollection, shiftCollection, staffCollection } from "@/lib/seed";
 import { useCollection } from "@/lib/storage";
-import { ROLES, SHIFT_TYPE, type Department, type Role, type ShiftType, type StaffMember } from "@/lib/types";
+import {
+  OPERATOR_ROLES,
+  ROLES,
+  SHIFT_TYPE,
+  type Department,
+  type OperatorRole,
+  type Role,
+  type ShiftType,
+  type StaffMember,
+} from "@/lib/types";
 
 const iso = (d: Date) => format(d, "yyyy-MM-dd");
 
@@ -299,7 +308,7 @@ export default function TeamPage() {
           </div>
         </>
       ) : (
-        <DirectoryGrid staff={visibleStaff} />
+        <DirectoryGrid staff={visibleStaff} canManage={can("team.manage")} />
       )}
 
       {addingDepartment ? (
@@ -411,6 +420,7 @@ interface EmployeeForm {
   department: Department;
   role: Role;
   demoPassword: string;
+  operatorRole: OperatorRole | "";
 }
 
 /**
@@ -441,6 +451,7 @@ function EmployeeDialog({
     department: departments[0] ?? "",
     role: "production",
     demoPassword: "demo1234",
+    operatorRole: "",
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -474,6 +485,7 @@ function EmployeeDialog({
       email,
       phone: values.phone.trim() || "—",
       demoPassword: values.demoPassword.trim(),
+      operatorRole: values.operatorRole || null,
     });
     onCreated();
   }
@@ -591,6 +603,18 @@ function EmployeeDialog({
         </div>
 
         <Field
+          label="MES operator type"
+          htmlFor="emp-operator"
+          helper="Some MES stations only take one kind of operator — Check 2, 3 and 4. Leave as “None” for anyone else."
+        >
+          <OperatorTypeSelect
+            id="emp-operator"
+            value={values.operatorRole}
+            onChange={(v) => set("operatorRole", v)}
+          />
+        </Field>
+
+        <Field
           label="Sign-in password"
           htmlFor="emp-password"
           required
@@ -614,7 +638,45 @@ function EmployeeDialog({
 
 /* -------------------------------------------------------------------------- */
 
-function DirectoryGrid({ staff }: { staff: StaffMember[] }) {
+function OperatorTypeSelect({
+  id,
+  value,
+  onChange,
+  compact = false,
+}: {
+  id?: string;
+  value: OperatorRole | "";
+  onChange: (value: OperatorRole | "") => void;
+  compact?: boolean;
+}) {
+  const options = (
+    <>
+      <option value="">None</option>
+      {(Object.keys(OPERATOR_ROLES) as OperatorRole[]).map((r) => (
+        <option key={r} value={r}>
+          {OPERATOR_ROLES[r].label}
+        </option>
+      ))}
+    </>
+  );
+  return compact ? (
+    <select
+      id={id}
+      value={value}
+      onChange={(e) => onChange(e.target.value as OperatorRole | "")}
+      aria-label="MES operator type"
+      className="h-7 w-full cursor-pointer rounded border border-[var(--border-strong)] bg-[var(--surface)] px-1.5 text-[11px] font-semibold text-foreground"
+    >
+      {options}
+    </select>
+  ) : (
+    <Select id={id} value={value} onChange={(e) => onChange(e.target.value as OperatorRole | "")}>
+      {options}
+    </Select>
+  );
+}
+
+function DirectoryGrid({ staff, canManage }: { staff: StaffMember[]; canManage: boolean }) {
   // Group by department so the directory reads like the org, not a flat list.
   const byDepartment = useMemo(() => {
     const map = new Map<Department, StaffMember[]>();
@@ -649,6 +711,21 @@ function DirectoryGrid({ staff }: { staff: StaffMember[] }) {
                   <p className="mt-0.5 inline-block rounded bg-[var(--surface-sunken)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--muted-foreground)]">
                     {ROLES[person.role].label}
                   </p>
+                  {/* Which MES stations they can be assigned at — managers
+                      set it here; everyone else just sees it. */}
+                  {canManage ? (
+                    <div className="mt-1.5 max-w-[15rem]">
+                      <OperatorTypeSelect
+                        value={person.operatorRole ?? ""}
+                        onChange={(v) => staffCollection.update(person.id, { operatorRole: v || null })}
+                        compact
+                      />
+                    </div>
+                  ) : person.operatorRole ? (
+                    <p className="ml-1 mt-0.5 inline-block rounded bg-[var(--brand-50)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--brand-700)]">
+                      {OPERATOR_ROLES[person.operatorRole].label}
+                    </p>
+                  ) : null}
 
                   <div className="mt-2 grid gap-1">
                     <a
