@@ -54,10 +54,13 @@ type Change =
   | { kind: "send-back"; row: Row }
   | { kind: "fail"; row: Row };
 
+/** `order` is the table's top-to-bottom grouping: work waiting to be picked
+ *  up first, then rework waiting to be redone, with what's already under
+ *  way at the bottom. */
 const STATE_META: Record<RowState, { label: string; tone: string; order: number }> = {
-  in_progress: { label: "In progress", tone: "var(--status-production)", order: 0 },
+  waiting: { label: "Waiting to start", tone: "var(--status-scheduled)", order: 0 },
   returned: { label: "Returned — rework", tone: "var(--warning)", order: 1 },
-  waiting: { label: "Waiting to start", tone: "var(--status-scheduled)", order: 2 },
+  in_progress: { label: "In progress", tone: "var(--status-production)", order: 2 },
 };
 
 const label = (batch: BatchRecord) => batch.batchNumber ?? "Draft batch";
@@ -108,8 +111,8 @@ export default function MesTablePage() {
     }
     return out.sort(
       (a, b) =>
-        a.stage.sequenceNumber - b.stage.sequenceNumber ||
         STATE_META[a.state].order - STATE_META[b.state].order ||
+        a.stage.sequenceNumber - b.stage.sequenceNumber ||
         a.since.localeCompare(b.since),
     );
   }, [pipeline.queues]);
