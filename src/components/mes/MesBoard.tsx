@@ -95,11 +95,14 @@ export function MesBoard({ viewSwitch }: { viewSwitch: ReactNode }) {
   const currentStageId = visibleStages.find((s) => s.id === selectedStageId)?.id ?? visibleStages[0]?.id;
   const currentStage = visibleStages.find((s) => s.id === currentStageId);
 
-  const { queue, ready, error, refresh, claim, forward, sendBack, fail } = useStageQueue(currentStageId);
+  const { queue, ready, fresh, error, refresh, claim, forward, sendBack, fail } = useStageQueue(currentStageId);
 
   const [soundEnabled, setSoundEnabled] = useSoundAlertsEnabled();
   const [audioUnlocked, setAudioUnlocked] = useState(() => isAudioUnlocked());
-  const newBatchIds = useStageArrivalAlerts(queue, user?.id, soundEnabled && audioUnlocked);
+  // Only fresh answers from the server feed the arrival alerts: the board
+  // first paints from the copy saved on the last visit, and comparing that
+  // with the fresh queue would chime for everything that arrived meanwhile.
+  const newBatchIds = useStageArrivalAlerts(fresh ? queue : null, user?.id, soundEnabled && audioUnlocked);
 
   /** The stage a Forward hands to. Absent at the end of the line, where
    *  forwarding completes the batch instead. */

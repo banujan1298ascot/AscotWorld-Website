@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "./apiClient";
+import { fetchCached, readCached } from "./apiCache";
 import { useAuth } from "./auth";
 
 export type BatchType = "A" | "B" | "C" | "D" | "M";
@@ -98,31 +99,34 @@ export const BATCH_DESTINATION_LABELS = Object.fromEntries(
   BATCH_DESTINATIONS.map((d) => [d.value, d.label]),
 ) as Record<BatchDestination, string>;
 
+const DEPARTMENTS_PATH = "/api/departments";
+
+/** Departments almost never change, so the last list this browser saw is
+ *  shown at once and refreshed behind it (see src/lib/apiCache.ts). */
 export function useDepartments(): { departments: DepartmentOption[]; ready: boolean; error: string | null } {
   const { user } = useAuth();
-  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
-  const [ready, setReady] = useState(false);
+  const staffId = user?.id;
+  const [fetched, setFetched] = useState<{ departments: DepartmentOption[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const cached = readCached<{ departments: DepartmentOption[] }>(staffId, DEPARTMENTS_PATH);
 
   useEffect(() => {
-    if (!user) return;
+    if (!staffId) return;
     let cancelled = false;
-    apiFetch<{ departments: DepartmentOption[] }>("/api/departments", user.id)
-      .then(({ departments }) => {
-        if (!cancelled) setDepartments(departments);
+    fetchCached<{ departments: DepartmentOption[] }>(DEPARTMENTS_PATH, staffId)
+      .then((data) => {
+        if (!cancelled) setFetched(data);
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load departments.");
-      })
-      .finally(() => {
-        if (!cancelled) setReady(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [staffId]);
 
-  return { departments, ready, error };
+  const data = fetched ?? cached;
+  return { departments: data?.departments ?? [], ready: Boolean(data) || error !== null, error: data ? null : error };
 }
 
 export function useBatchBook(statusFilter?: BatchBookStatus) {

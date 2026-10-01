@@ -5,8 +5,9 @@
  * src/app/api/mes. Same shape as src/lib/batchBook.ts's hooks — see that
  * file's header for why this is hand-rolled rather than a cache library.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "./apiClient";
+import { fetchCached, readCached } from "./apiCache";
 import { useAuth } from "./auth";
 import type { BatchRecord } from "./batchBook";
 import type { OperatorRole } from "./types";
@@ -40,31 +41,34 @@ export interface StageQueue {
   inProgress: InProgressEntry[];
 }
 
+/** The stage list rarely changes, so the last one this browser saw is shown
+ *  at once and refreshed behind it (see src/lib/apiCache.ts). */
 export function useStages(departmentId?: string): { stages: StageDefinition[]; ready: boolean; error: string | null } {
   const { user } = useAuth();
-  const [stages, setStages] = useState<StageDefinition[]>([]);
-  const [ready, setReady] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const staffId = user?.id;
+  const path = departmentId ? `/api/mes/stages?departmentId=${departmentId}` : null;
+  const [fetched, setFetched] = useState<{ path: string; stages: StageDefinition[] } | null>(null);
+  const [error, setError] = useState<{ path: string; message: string } | null>(null);
+  const cached = readCached<{ stages: StageDefinition[] }>(staffId, path);
 
   useEffect(() => {
-    if (!user || !departmentId) return;
+    if (!staffId || !path) return;
     let cancelled = false;
-    apiFetch<{ stages: StageDefinition[] }>(`/api/mes/stages?departmentId=${departmentId}`, user.id)
+    fetchCached<{ stages: StageDefinition[] }>(path, staffId)
       .then(({ stages }) => {
-        if (!cancelled) setStages(stages);
+        if (!cancelled) setFetched({ path, stages });
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load stages.");
-      })
-      .finally(() => {
-        if (!cancelled) setReady(true);
+        if (!cancelled) setError({ path, message: err instanceof Error ? err.message : "Failed to load stages." });
       });
     return () => {
       cancelled = true;
     };
-  }, [user, departmentId]);
+  }, [staffId, path]);
 
-  return { stages, ready, error };
+  const stages = (fetched?.path === path ? fetched.stages : undefined) ?? cached?.stages;
+  const failed = error?.path === path && !stages ? error.message : null;
+  return { stages: stages ?? [], ready: Boolean(stages) || failed !== null, error: failed };
 }
 
 /** How often an open stage screen re-checks its queue for arrivals it
@@ -72,48 +76,60 @@ export function useStages(departmentId?: string): { stages: StageDefinition[]; r
  *  push/WebSocket transport yet, see docs/mes-api.md). */
 export const STAGE_QUEUE_POLL_MS = 8000;
 
+/**
+ * One stage's queue, polled. Until the server first answers, the last queue
+ * this browser saw for the stage is shown (from src/lib/apiCache.ts), so the
+ * board paints at once instead of waiting on the round trip; `fresh` says
+ * whether what's showing has come back from the server yet.
+ */
 export function useStageQueue(stageId: string | undefined, pollIntervalMs: number = STAGE_QUEUE_POLL_MS) {
   const { user } = useAuth();
-  const [queue, setQueue] = useState<StageQueue | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const staffId = user?.id;
+  const path = stageId ? `/api/mes/stages/${stageId}/queue` : null;
+  // The server's latest answer, tagged with the stage it's for — switching
+  // stages then shows the new stage's cached queue (or a loading state),
+  // never a flash of the previous stage's.
+  const [state, setState] = useState<{ path: string; queue: StageQueue | null; error: string | null } | null>(null);
+  const cached = readCached<{ queue: StageQueue }>(staffId, path)?.queue ?? null;
+  const current = state && state.path === path ? state : null;
 
-  const load = useCallback(async (): Promise<{ queue: StageQueue } | { error: string } | null> => {
-    if (!user || !stageId) return null;
-    try {
-      return await apiFetch<{ queue: StageQueue }>(`/api/mes/stages/${stageId}/queue`, user.id);
-    } catch (err) {
-      return { error: err instanceof Error ? err.message : "Failed to load this stage's queue." };
-    }
-  }, [user, stageId]);
+  const load = useCallback(
+    async (fresh = false): Promise<{ path: string; queue: StageQueue } | { path: string; error: string } | null> => {
+      if (!staffId || !path) return null;
+      try {
+        const { queue } = await fetchCached<{ queue: StageQueue }>(path, staffId, { fresh });
+        return { path, queue };
+      } catch (err) {
+        return { path, error: err instanceof Error ? err.message : "Failed to load this stage's queue." };
+      }
+    },
+    [staffId, path],
+  );
 
   useEffect(() => {
     let ignore = false;
-    // Reset happens inside the async chain (not synchronously in the effect
-    // body) so switching stages shows a loading state rather than briefly
-    // flashing the previous stage's queue.
-    Promise.resolve().then(() => {
-      if (ignore) return;
-      setQueue(null);
-      setError(null);
-    });
     load().then((result) => {
       if (ignore || !result) return;
-      if ("error" in result) setError(result.error);
-      else setQueue(result.queue);
+      if ("error" in result) setState({ path: result.path, queue: null, error: result.error });
+      else setState({ path: result.path, queue: result.queue, error: null });
     });
     return () => {
       ignore = true;
     };
-  }, [load, stageId]);
+  }, [load]);
 
+  /** After this screen changed something — never handed a request that
+   *  started before the change. */
   const refresh = useCallback(async () => {
-    const result = await load();
+    const result = await load(true);
     if (!result) return;
-    if ("error" in result) setError(result.error);
-    else {
-      setQueue(result.queue);
-      setError(null);
-    }
+    if ("error" in result) {
+      setState((prev) => ({
+        path: result.path,
+        queue: prev?.path === result.path ? prev.queue : null,
+        error: result.error,
+      }));
+    } else setState({ path: result.path, queue: result.queue, error: null });
   }, [load]);
 
   // Polls for arrivals this screen didn't cause itself (someone else's
@@ -121,14 +137,18 @@ export function useStageQueue(stageId: string | undefined, pollIntervalMs: numbe
   // silently skipped rather than replacing a working board with an error
   // banner over one transient network blip — it'll just try again next tick.
   useEffect(() => {
-    if (!stageId || pollIntervalMs <= 0) return;
+    if (!path || pollIntervalMs <= 0) return;
     const id = setInterval(() => {
       load().then((result) => {
-        if (result && !("error" in result)) setQueue(result.queue);
+        if (result && !("error" in result)) setState({ path: result.path, queue: result.queue, error: null });
       });
     }, pollIntervalMs);
     return () => clearInterval(id);
-  }, [stageId, pollIntervalMs, load]);
+  }, [path, pollIntervalMs, load]);
+
+  const queue = current?.queue ?? cached;
+  const error = current?.error ?? null;
+  const fresh = Boolean(current?.queue);
 
   async function act<T>(path: string, init?: RequestInit): Promise<T> {
     if (!user) throw new Error("Not signed in.");
@@ -172,7 +192,21 @@ export function useStageQueue(stageId: string | undefined, pollIntervalMs: numbe
     [stageId, user, refresh],
   );
 
-  return { queue, ready: queue !== null || error !== null, error, refresh, claim, forward, sendBack, fail };
+  return { queue, ready: queue !== null || error !== null, fresh, error, refresh, claim, forward, sendBack, fail };
+}
+
+/** The cached queue for every stage in `key` (comma-separated ids), or null
+ *  unless all of them are cached — a table with some stations missing would
+ *  look like those stations were empty. */
+function cachedQueues(staffId: string | undefined, key: string): StageQueue[] | null {
+  if (!staffId || !key) return null;
+  const queues: StageQueue[] = [];
+  for (const id of key.split(",")) {
+    const hit = readCached<{ queue: StageQueue }>(staffId, `/api/mes/stages/${id}/queue`);
+    if (!hit) return null;
+    queues.push(hit.queue);
+  }
+  return queues;
 }
 
 /**
@@ -183,48 +217,59 @@ export function useStageQueue(stageId: string | undefined, pollIntervalMs: numbe
  */
 export function useAllStageQueues(stageIds: string[], pollIntervalMs: number = STAGE_QUEUE_POLL_MS) {
   const { user } = useAuth();
-  const [queues, setQueues] = useState<StageQueue[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const staffId = user?.id;
   const key = stageIds.join(",");
+  // As in useStageQueue: the server's latest answer for this set of stages,
+  // and until then the queues this browser last saw for them.
+  const [state, setState] = useState<{ key: string; queues: StageQueue[] | null; error: string | null } | null>(null);
+  const current = state && state.key === key ? state : null;
+  // Memoised so the table isn't handed a new array every render while it
+  // waits; the fresh answer replaces it anyway.
+  const cached = useMemo(() => cachedQueues(staffId, key), [staffId, key]);
 
-  const load = useCallback(async (): Promise<StageQueue[] | { error: string } | null> => {
-    if (!user || !key) return null;
-    try {
-      return await Promise.all(
-        key
-          .split(",")
-          .map((id) => apiFetch<{ queue: StageQueue }>(`/api/mes/stages/${id}/queue`, user.id).then((r) => r.queue)),
-      );
-    } catch (err) {
-      return { error: err instanceof Error ? err.message : "Failed to load the pipeline." };
-    }
-  }, [user, key]);
+  const load = useCallback(
+    async (fresh = false): Promise<{ key: string; queues: StageQueue[] } | { key: string; error: string } | null> => {
+      if (!staffId || !key) return null;
+      try {
+        const queues = await Promise.all(
+          key
+            .split(",")
+            .map((id) =>
+              fetchCached<{ queue: StageQueue }>(`/api/mes/stages/${id}/queue`, staffId, { fresh }).then((r) => r.queue),
+            ),
+        );
+        return { key, queues };
+      } catch (err) {
+        return { key, error: err instanceof Error ? err.message : "Failed to load the pipeline." };
+      }
+    },
+    [staffId, key],
+  );
 
   const refresh = useCallback(async () => {
-    const result = await load();
+    const result = await load(true);
     if (!result) return;
-    if ("error" in result) setError(result.error);
-    else {
-      setQueues(result);
-      setError(null);
-    }
+    if ("error" in result) {
+      setState((prev) => ({
+        key: result.key,
+        queues: prev?.key === result.key ? prev.queues : null,
+        error: result.error,
+      }));
+    } else setState({ key: result.key, queues: result.queues, error: null });
   }, [load]);
 
   useEffect(() => {
     let ignore = false;
     load().then((result) => {
       if (ignore || !result) return;
-      if ("error" in result) setError(result.error);
-      else {
-        setQueues(result);
-        setError(null);
-      }
+      if ("error" in result) setState({ key: result.key, queues: null, error: result.error });
+      else setState({ key: result.key, queues: result.queues, error: null });
     });
     if (pollIntervalMs <= 0) return () => void (ignore = true);
     // A failed poll keeps the table as it was; the next one retries.
     const id = setInterval(() => {
       load().then((result) => {
-        if (!ignore && result && !("error" in result)) setQueues(result);
+        if (!ignore && result && !("error" in result)) setState({ key: result.key, queues: result.queues, error: null });
       });
     }, pollIntervalMs);
     return () => {
@@ -232,6 +277,9 @@ export function useAllStageQueues(stageIds: string[], pollIntervalMs: number = S
       clearInterval(id);
     };
   }, [load, pollIntervalMs]);
+
+  const queues = current?.queues ?? cached;
+  const error = current?.error ?? null;
 
   async function act(path: string, body?: unknown): Promise<void> {
     if (!user) throw new Error("Not signed in.");

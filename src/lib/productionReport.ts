@@ -5,7 +5,7 @@
  * src/app/api/mes/reports/*. Types mirror src/server/dashboard/reports.ts.
  */
 import { useEffect, useState } from "react";
-import { apiFetch } from "./apiClient";
+import { fetchCached, readCached } from "./apiCache";
 import { useAuth } from "./auth";
 
 export type OutputRange = "week" | "month" | "year";
@@ -98,7 +98,9 @@ interface Resource<T> {
  * Fetches `path` (skipping while it's null), keeping the previous data on
  * screen while a new path loads so switching a chart range doesn't flash
  * empty. With `pollMs`, re-fetches silently on that interval — a failed
- * poll keeps the last good data rather than blanking the card.
+ * poll keeps the last good data rather than blanking the card. Until the
+ * first answer arrives, the last one this browser saw for `path` is shown
+ * (src/lib/apiCache.ts), so a revisit paints at once.
  */
 function useApiResource<T>(path: string | null, pollMs?: number): Resource<T> {
   const { user } = useAuth();
@@ -108,12 +110,13 @@ function useApiResource<T>(path: string | null, pollMs?: number): Resource<T> {
     data: null,
     error: null,
   });
+  const cached = readCached<T>(staffId, path) ?? null;
 
   useEffect(() => {
     if (!path || !staffId) return;
     let ignore = false;
     const load = (initial: boolean) =>
-      apiFetch<T>(path, staffId).then(
+      fetchCached<T>(path, staffId).then(
         (data) => {
           if (!ignore) setState({ path, data, error: null });
         },
@@ -148,10 +151,12 @@ function useApiResource<T>(path: string | null, pollMs?: number): Resource<T> {
     };
   }, [path, staffId, pollMs]);
 
+  // The cached copy only stands in for this exact path, before it's answered.
+  const data = state.path === path ? state.data : (cached ?? state.data);
   return {
-    data: state.data,
+    data,
     error: state.error,
-    ready: state.data !== null || state.error !== null,
+    ready: data !== null || state.error !== null,
     loading: path !== null && state.path !== path,
   };
 }

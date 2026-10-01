@@ -19,6 +19,7 @@ import { useAuth } from "@/lib/auth";
 import { useUnreadMessageCount } from "@/lib/messaging";
 import { useUnreadNotificationCount } from "@/lib/notifications";
 import { useDueTomorrowReminders } from "@/lib/reminders";
+import { prefetchMes } from "@/lib/apiCache";
 import { useSidebarHidden } from "@/lib/sidebar";
 import { resetAllDemoData } from "@/lib/storage";
 import { useTheme } from "@/lib/theme";
@@ -70,6 +71,18 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   useEffect(() => {
     if (ready && !user) router.replace("/login");
   }, [ready, user, router]);
+
+  // Warm the MES's data in the background once signed in, so opening it is
+  // as instant as every other page instead of waiting on its chain of
+  // requests. Deferred a moment so it never competes with the page that's
+  // actually loading.
+  const staffId = user?.id;
+  const mesStage = user?.mesStage;
+  useEffect(() => {
+    if (!staffId) return;
+    const timer = window.setTimeout(() => prefetchMes(staffId, mesStage), 400);
+    return () => window.clearTimeout(timer);
+  }, [staffId, mesStage]);
 
   if (!ready || !user) {
     return (
