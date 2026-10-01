@@ -4,10 +4,12 @@ import { BATCH_DESTINATION_LABELS, type BatchRecord } from "@/lib/batchBook";
 
 /*
  * Flags set at Batch Book entry that follow a batch through every MES
- * station: an urgent batch's card or row is filled solid orange (#FF4D00), stock for
- * Ireland solid green (#008000) — gradients in the style of the station banner.
- * A batch that's both is orange with a green bar down its left edge. Colour is never the only
- * signal: every flagged batch also carries text badges.
+ * station: an urgent batch's card or row is filled solid orange (#FF4D00),
+ * stock for Ireland solid green (#008000) — gradients in the style of the
+ * station banner. Urgent takes priority: an urgent batch for Ireland is
+ * plain orange, with the green IRELAND badge saying where it's going.
+ * Colour is never the only signal: every flagged batch also carries text
+ * badges.
  */
 
 type Flaggable = Pick<BatchRecord, "urgent" | "destination">;
@@ -20,7 +22,7 @@ export function isFlagged(batch: Flaggable): boolean {
 }
 
 function gradient(batch: Flaggable): string | null {
-  if (batch.urgent && isIreland(batch)) return "var(--urgent-ireland-gradient)";
+  // Urgent wins outright, whatever the destination.
   if (batch.urgent) return "var(--urgent-gradient)";
   if (isIreland(batch)) return "var(--ireland-gradient)";
   return null;

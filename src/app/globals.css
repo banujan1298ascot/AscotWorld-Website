@@ -89,13 +89,10 @@
   /* Solid fills for a flagged MES card or row, left to right like
      --brand-gradient on the station banner: urgent built on #FF4D00 (dark
      text), Ireland on #008000 (white text) — see .batch-flagged below. The
-     same in both themes. A batch that's both is the urgent fill with a solid
-     green bar down its left edge: a gradient from one into the other would
-     leave no text colour readable across the whole card. */
+     same in both themes. Urgent takes priority: an urgent batch for Ireland
+     is plain urgent orange (its IRELAND badge still shows). */
   --urgent-gradient: linear-gradient(90deg, #ff7a3d 0%, #ff4d00 55%, #f24700 100%);
   --ireland-gradient: linear-gradient(90deg, #008000 0%, #007000 55%, #005c00 100%);
-  --urgent-ireland-gradient: linear-gradient(#008000, #008000) left top / 10px 100% no-repeat,
-    linear-gradient(90deg, #ff7a3d 0%, #ff4d00 55%, #f24700 100%);
 
   /* --- dense dashboard spacing scale ------------------------------------ */
   --space-1: 0.25rem;
