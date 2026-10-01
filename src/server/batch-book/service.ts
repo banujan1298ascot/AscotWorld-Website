@@ -17,15 +17,24 @@ import {
   canEditBatch,
   canEditFields,
   checkPriorityAndDestination,
+  checkProductFields,
   type ActingStaff,
 } from "./validation";
+import { composeProductName } from "@/lib/products";
 
 export type BatchRecordRow = typeof batchRecords.$inferSelect;
 
 export interface CreateDraftInput {
   batchType: BatchType;
   departmentId: string;
+  /** Only for callers without the separate fields (older scripts); when
+   *  `medicineName` is given the full name is built from the fields. */
   productName?: string | null;
+  medicineName?: string | null;
+  strength?: string | null;
+  dosageForm?: BatchRecordRow["dosageForm"];
+  packSize?: string | number | null;
+  packUnit?: BatchRecordRow["packUnit"];
   quantity?: string | null;
   unit?: string | null;
   plannedManufactureDate?: string | null;
@@ -33,6 +42,10 @@ export interface CreateDraftInput {
   destination?: BatchRecordRow["destination"];
   customFields?: Record<string, unknown>;
 }
+
+const trimmedOrNull = (value: string | null | undefined) => (value?.trim() ? value.trim() : null);
+const packSizeValue = (value: string | number | null | undefined) =>
+  value === null || value === undefined || value === "" ? null : String(Number(value));
 
 export async function listBatches(filter?: { status?: BatchRecordRow["status"] }): Promise<BatchRecordRow[]> {
   return db
@@ -53,13 +66,24 @@ export async function createDraft(input: CreateDraftInput, actingStaff: ActingSt
   if (!verdict.ok) throw new ApiError(403, verdict.error);
   const fields = checkPriorityAndDestination(input);
   if (!fields.ok) throw new ApiError(422, fields.error);
+  const product = checkProductFields(input);
+  if (!product.ok) throw new ApiError(422, product.error);
+
+  const medicineName = trimmedOrNull(input.medicineName);
+  const strength = trimmedOrNull(input.strength);
+  const dosageForm = input.dosageForm ?? null;
 
   const [row] = await db
     .insert(batchRecords)
     .values({
       batchType: input.batchType,
       departmentId: input.departmentId,
-      productName: input.productName ?? null,
+      productName: composeProductName({ medicineName, strength, dosageForm }) ?? input.productName ?? null,
+      medicineName,
+      strength,
+      dosageForm,
+      packSize: packSizeValue(input.packSize),
+      packUnit: input.packUnit ?? null,
       quantity: input.quantity ?? null,
       unit: input.unit ?? null,
       plannedManufactureDate: input.plannedManufactureDate ?? null,
@@ -81,6 +105,11 @@ export interface UpdateBatchInput {
       | "batchType"
       | "departmentId"
       | "productName"
+      | "medicineName"
+      | "strength"
+      | "dosageForm"
+      | "packSize"
+      | "packUnit"
       | "quantity"
       | "unit"
       | "plannedManufactureDate"
@@ -105,15 +134,41 @@ export async function updateBatch(
     const permission = canEditBatch(actingStaff, existing, input.reason);
     if (!permission.ok) throw new ApiError(403, permission.error);
 
-    const patchKeys = Object.keys(input.patch);
-    const fieldsAllowed = canEditFields(existing, patchKeys);
+    const fieldsAllowed = canEditFields(existing, Object.keys(input.patch));
     if (!fieldsAllowed.ok) throw new ApiError(422, fieldsAllowed.error);
     const values = checkPriorityAndDestination(input.patch);
     if (!values.ok) throw new ApiError(422, values.error);
+    const merged = { ...existing, ...input.patch };
+    const product = checkProductFields({
+      medicineName: input.patch.medicineName,
+      strength: input.patch.strength,
+      // Checked against the batch's resulting type and unit together, so a
+      // patch changing only one can't leave them mismatched.
+      dosageForm: merged.dosageForm,
+      packSize: input.patch.packSize,
+      packUnit: merged.packUnit,
+    });
+    if (!product.ok) throw new ApiError(422, product.error);
+
+    // Editing the product's parts rebuilds its full name, so the rest of the
+    // portal (and the audit trail) sees the same change.
+    const patch: UpdateBatchInput["patch"] = { ...input.patch };
+    if ("medicineName" in patch || "strength" in patch || "dosageForm" in patch) {
+      patch.medicineName = trimmedOrNull(merged.medicineName);
+      patch.strength = trimmedOrNull(merged.strength);
+      const composed = composeProductName({
+        medicineName: patch.medicineName,
+        strength: patch.strength,
+        dosageForm: merged.dosageForm,
+      });
+      if (composed) patch.productName = composed;
+    }
+    if ("packSize" in patch) patch.packSize = packSizeValue(patch.packSize);
+    const patchKeys = Object.keys(patch);
 
     const [updated] = await tx
       .update(batchRecords)
-      .set(input.patch)
+      .set(patch)
       .where(eq(batchRecords.id, id))
       .returning();
 

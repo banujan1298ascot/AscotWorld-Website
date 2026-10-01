@@ -52,4 +52,20 @@ export const stageArrivalEnum = pgEnum("stage_arrival", ["FORWARD", "RETURNED"])
  *  BATCH_DESTINATIONS in src/lib/batchBook.ts. */
 export const batchDestinationEnum = pgEnum("batch_destination", ["UK", "IRELAND", "SPAIN", "GERMANY", "ABU_DHABI"]);
 
+/** A batch's product type, picked from the Batch Book's dropdown. Mirrors
+ *  DOSAGE_FORMS in src/lib/products.ts. */
+export const dosageFormEnum = pgEnum("dosage_form", [
+  "TABLETS",
+  "CAPSULES",
+  "CREAM",
+  "OINTMENT",
+  "SOLUTION",
+  "SUSPENSION",
+  "OTHER",
+]);
+
+/** What a pack size is counted in — a count of tablets/capsules, or a
+ *  volume. Mirrors PACK_UNITS in src/lib/products.ts. */
+export const packUnitEnum = pgEnum("pack_unit", ["tablets", "capsules", "ml", "g"]);
+
 export const labelPrintKindEnum = pgEnum("label_print_kind", ["FIRST_PRINT", "REPRINT"]);

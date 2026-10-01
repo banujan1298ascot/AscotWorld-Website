@@ -17,6 +17,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "./apiClient";
 import { fetchCached, readCached } from "./apiCache";
 import { useAuth } from "./auth";
+import type { DosageForm, PackUnit } from "./products";
 
 export type BatchType = "A" | "B" | "C" | "D" | "M";
 export type BatchBookStatus = "DRAFT" | "CONFIRMED" | "IN_PROGRESS" | "COMPLETED" | "ON_HOLD" | "FAILED";
@@ -27,7 +28,15 @@ export interface BatchRecord {
   batchNumber: string | null;
   batchSequence: number | null;
   departmentId: string;
+  /** The full name ("Paracetamol 500mg Tablets"), built from the fields
+   *  below when they were entered — see src/lib/products.ts. */
   productName: string | null;
+  medicineName: string | null;
+  strength: string | null;
+  dosageForm: DosageForm | null;
+  /** Per pack: a count of tablets/capsules, or a volume. */
+  packSize: string | null;
+  packUnit: PackUnit | null;
   quantity: string | null;
   unit: string | null;
   plannedManufactureDate: string | null;
@@ -61,7 +70,11 @@ export interface DepartmentOption {
 export interface BatchDraftInput {
   batchType: BatchType;
   departmentId: string;
-  productName?: string;
+  medicineName?: string;
+  strength?: string;
+  dosageForm?: DosageForm;
+  packSize?: string;
+  packUnit?: PackUnit;
   quantity?: string;
   unit?: string;
   plannedManufactureDate?: string;
@@ -75,6 +88,11 @@ export type BatchPatch = Partial<
     | "batchType"
     | "departmentId"
     | "productName"
+    | "medicineName"
+    | "strength"
+    | "dosageForm"
+    | "packSize"
+    | "packUnit"
     | "quantity"
     | "unit"
     | "plannedManufactureDate"
@@ -98,6 +116,50 @@ export const BATCH_DESTINATIONS: { value: BatchDestination; label: string }[] = 
 export const BATCH_DESTINATION_LABELS = Object.fromEntries(
   BATCH_DESTINATIONS.map((d) => [d.value, d.label]),
 ) as Record<BatchDestination, string>;
+
+/** A product made before, offered while typing a new batch's product name.
+ *  Mirrors ProductSuggestion in src/server/batch-book/products.ts. */
+export interface ProductSuggestion {
+  productName: string;
+  medicineName: string;
+  strength: string | null;
+  dosageForm: DosageForm | null;
+  packSize: string | null;
+  packUnit: PackUnit | null;
+  unit: string | null;
+  batches: number;
+  lastEnteredAt: string;
+}
+
+/** Suggestions for `query` (already debounced by the caller); empty until
+ *  something's typed. A reply for an older query never overwrites a newer
+ *  one. */
+export function useProductSuggestions(query: string): { suggestions: ProductSuggestion[]; loading: boolean } {
+  const { user } = useAuth();
+  const staffId = user?.id;
+  const trimmed = query.trim();
+  const [result, setResult] = useState<{ query: string; products: ProductSuggestion[] } | null>(null);
+
+  useEffect(() => {
+    if (!staffId || !trimmed) return;
+    let cancelled = false;
+    apiFetch<{ products: ProductSuggestion[] }>(`/api/batch-book/products?q=${encodeURIComponent(trimmed)}`, staffId)
+      .then(({ products }) => {
+        if (!cancelled) setResult({ query: trimmed, products });
+      })
+      .catch(() => {
+        // Suggestions are a convenience — typing still works without them.
+        if (!cancelled) setResult({ query: trimmed, products: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [staffId, trimmed]);
+
+  if (!trimmed) return { suggestions: [], loading: false };
+  const current = result?.query === trimmed;
+  return { suggestions: current ? result.products : (result?.products ?? []), loading: !current };
+}
 
 const DEPARTMENTS_PATH = "/api/departments";
 

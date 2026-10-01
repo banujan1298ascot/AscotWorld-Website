@@ -3,6 +3,13 @@
  * Kept separate from service.ts so "who may do what, and when" is testable
  * without a database — service.ts calls these and only then touches the DB.
  */
+import {
+  DOSAGE_FORM_VALUES,
+  PACK_UNITS,
+  dosageFormInfo,
+  type DosageForm,
+  type PackUnit,
+} from "@/lib/products";
 import { roleCan } from "@/lib/types";
 import type { ActingStaff } from "../actingStaff";
 
@@ -79,6 +86,11 @@ const BATCH_BOOK_FIELDS = new Set([
   "batchType",
   "departmentId",
   "productName",
+  "medicineName",
+  "strength",
+  "dosageForm",
+  "packSize",
+  "packUnit",
   "quantity",
   "unit",
   "plannedManufactureDate",
@@ -86,6 +98,58 @@ const BATCH_BOOK_FIELDS = new Set([
   "destination",
   "customFields",
 ]);
+
+/**
+ * Are the product fields, where given, ones the record can hold? Name and
+ * strength are free text within reason; the type must be one of the
+ * dropdown's; a pack size needs its unit, and the unit has to suit the type
+ * (a count for tablets/capsules, a volume for liquids and creams).
+ */
+export function checkProductFields(fields: {
+  medicineName?: unknown;
+  strength?: unknown;
+  dosageForm?: unknown;
+  packSize?: unknown;
+  packUnit?: unknown;
+}): Verdict {
+  const text = (value: unknown, max: number, label: string): Verdict =>
+    value === undefined || value === null || (typeof value === "string" && value.trim().length <= max)
+      ? { ok: true }
+      : { ok: false, error: `${label} must be text of up to ${max} characters.` };
+  for (const verdict of [
+    text(fields.medicineName, 120, "Product name"),
+    text(fields.strength, 40, "Strength"),
+  ]) {
+    if (!verdict.ok) return verdict;
+  }
+
+  const form = fields.dosageForm;
+  if (form !== undefined && form !== null && !DOSAGE_FORM_VALUES.includes(form as DosageForm)) {
+    return { ok: false, error: `Type must be one of ${DOSAGE_FORM_VALUES.join(", ")}.` };
+  }
+
+  const unit = fields.packUnit;
+  if (unit !== undefined && unit !== null && !PACK_UNITS.includes(unit as PackUnit)) {
+    return { ok: false, error: `Pack unit must be one of ${PACK_UNITS.join(", ")}.` };
+  }
+
+  const size = fields.packSize;
+  if (size !== undefined && size !== null && size !== "") {
+    const n = typeof size === "number" ? size : typeof size === "string" ? Number(size) : NaN;
+    if (!Number.isFinite(n) || n <= 0 || n > 1_000_000) {
+      return { ok: false, error: "Pack size must be a number above zero." };
+    }
+    if (!unit) return { ok: false, error: "Say what the pack size is counted in (tablets, ml, ...)." };
+  }
+
+  if (form && unit) {
+    const allowed = dosageFormInfo(form as DosageForm)?.packUnits ?? [];
+    if (!allowed.includes(unit as PackUnit)) {
+      return { ok: false, error: `A ${dosageFormInfo(form as DosageForm)?.label.toLowerCase()} pack is measured in ${allowed.join(" or ")}.` };
+    }
+  }
+  return { ok: true };
+}
 
 /** Mirrors batch_destination in src/server/db/schema/enums.ts. */
 export const BATCH_DESTINATIONS = ["UK", "IRELAND", "SPAIN", "GERMANY", "ABU_DHABI"] as const;

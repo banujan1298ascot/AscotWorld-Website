@@ -4,6 +4,13 @@ import { useMemo, useState } from "react";
 import { CheckCircle, PencilSimple, Plus, Warning } from "@phosphor-icons/react/dist/ssr";
 import { BatchFlags, FAILED_SURFACE } from "@/components/mes/BatchFlags";
 import {
+  EMPTY_PRODUCT,
+  ProductFields,
+  productPatch,
+  productValuesFrom,
+  type ProductFieldValues,
+} from "@/components/batch-book/ProductFields";
+import {
   Button,
   Card,
   EmptyState,
@@ -27,6 +34,7 @@ import {
   useDepartments,
   type BatchBookStatus,
   type BatchDestination,
+  type BatchDraftInput,
   type BatchPatch,
   type BatchRecord,
   type BatchType,
@@ -348,24 +356,12 @@ function CreateBatchModal({
   open: boolean;
   defaultBatchType: BatchType;
   onClose: () => void;
-  onSubmit: (
-    input: {
-      batchType: BatchType;
-      departmentId: string;
-      productName?: string;
-      quantity?: string;
-      unit?: string;
-      plannedManufactureDate?: string;
-      urgent?: boolean;
-      destination?: BatchDestination;
-    },
-    confirmNow: boolean,
-  ) => Promise<void>;
+  onSubmit: (input: BatchDraftInput, confirmNow: boolean) => Promise<void>;
 }) {
   const { departments, ready, error: departmentsError } = useDepartments();
   const [batchType, setBatchType] = useState<BatchType>(defaultBatchType);
   const [departmentId, setDepartmentId] = useState("");
-  const [productName, setProductName] = useState("");
+  const [product, setProduct] = useState<ProductFieldValues>(EMPTY_PRODUCT);
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("");
   const [plannedDate, setPlannedDate] = useState("");
@@ -376,16 +372,24 @@ function CreateBatchModal({
   const error = submitError ?? departmentsError;
 
   const selectedDepartment = departmentId || departments[0]?.id || "";
+  // Confirming needs the product named and its type chosen; a draft can be
+  // saved part-filled.
+  const productReady = Boolean(product.medicineName.trim() && product.dosageForm);
 
   async function submit(confirmNow: boolean) {
     setSubmitting(true);
     setSubmitError(null);
+    const parts = productPatch(product);
     try {
       await onSubmit(
         {
           batchType,
           departmentId: selectedDepartment,
-          productName: productName || undefined,
+          medicineName: parts.medicineName || undefined,
+          strength: parts.strength ?? undefined,
+          dosageForm: parts.dosageForm ?? undefined,
+          packSize: parts.packSize ?? undefined,
+          packUnit: parts.packUnit ?? undefined,
           quantity: quantity || undefined,
           unit: unit || undefined,
           plannedManufactureDate: plannedDate || undefined,
@@ -418,7 +422,7 @@ function CreateBatchModal({
           <Button
             variant="primary"
             icon={<CheckCircle size={15} weight="bold" />}
-            disabled={!selectedDepartment || !destination || submitting}
+            disabled={!selectedDepartment || !productReady || !destination || submitting}
             onClick={() => void submit(true)}
           >
             {submitting ? "Working…" : "Confirm batch"}
@@ -450,12 +454,19 @@ function CreateBatchModal({
           </Select>
         </Field>
 
-        <Field label="Product" htmlFor="product-name">
-          <Input id="product-name" value={productName} onChange={(e) => setProductName(e.target.value)} />
-        </Field>
+        <ProductFields
+          idPrefix="new"
+          values={product}
+          onChange={setProduct}
+          // A product made before brings its batch-quantity unit along too,
+          // unless one's already been typed.
+          onPickSuggestion={(s) => {
+            if (!unit.trim() && s.unit) setUnit(s.unit);
+          }}
+        />
 
         <div className="grid grid-cols-2 gap-3.5">
-          <Field label="Quantity" htmlFor="quantity">
+          <Field label="Batch quantity" htmlFor="quantity">
             <Input id="quantity" inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
           </Field>
           <Field label="Unit" htmlFor="unit">
@@ -493,7 +504,11 @@ function EditBatchModal({
   onConfirm?: (patch: BatchPatch) => Promise<void>;
 }) {
   const isDraft = batch.status === "DRAFT";
-  const [productName, setProductName] = useState(batch.productName ?? "");
+  const [product, setProduct] = useState<ProductFieldValues>(() => productValuesFrom(batch));
+  // Only sent when changed: re-saving an older batch's free-text name through
+  // the separate fields would rewrite it even if nobody meant to touch it.
+  const [productTouched, setProductTouched] = useState(false);
+  const productReady = Boolean(product.medicineName.trim() && product.dosageForm);
   const [quantity, setQuantity] = useState(batch.quantity ?? "");
   const [unit, setUnit] = useState(batch.unit ?? "");
   const [plannedDate, setPlannedDate] = useState(batch.plannedManufactureDate ?? "");
@@ -504,7 +519,7 @@ function EditBatchModal({
   const [error, setError] = useState<string | null>(null);
 
   const currentPatch = (): BatchPatch => ({
-    productName: productName || null,
+    ...(productTouched ? productPatch(product) : {}),
     quantity: quantity || null,
     unit: unit || null,
     plannedManufactureDate: plannedDate || null,
@@ -549,7 +564,7 @@ function EditBatchModal({
             <Button
               variant="primary"
               icon={<CheckCircle size={15} weight="bold" />}
-              disabled={submitting || !destination}
+              disabled={submitting || !productReady || !destination}
               onClick={() => void run(() => onConfirm(currentPatch()))}
             >
               {submitting ? "Working…" : "Confirm batch"}
@@ -561,12 +576,20 @@ function EditBatchModal({
       <div className="grid gap-3.5">
         {error ? <ErrorNotice message={error} /> : null}
 
-        <Field label="Product" htmlFor="edit-product-name">
-          <Input id="edit-product-name" value={productName} onChange={(e) => setProductName(e.target.value)} />
-        </Field>
+        <ProductFields
+          idPrefix="edit"
+          values={product}
+          onChange={(next) => {
+            setProduct(next);
+            setProductTouched(true);
+          }}
+          onPickSuggestion={(s) => {
+            if (!unit.trim() && s.unit) setUnit(s.unit);
+          }}
+        />
 
         <div className="grid grid-cols-2 gap-3.5">
-          <Field label="Quantity" htmlFor="edit-quantity">
+          <Field label="Batch quantity" htmlFor="edit-quantity">
             <Input
               id="edit-quantity"
               inputMode="decimal"

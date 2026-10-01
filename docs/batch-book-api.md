@@ -129,6 +129,27 @@ Body:
 ### `GET /api/batch-book/:id`
 → `200 { batch: BatchRecord }` or `404` if unknown.
 
+### Product fields and suggestions
+A batch's product is entered as parts: `medicineName` ("Paracetamol"),
+`strength` (free text, "500mg"), `dosageForm` (`TABLETS` | `CAPSULES` |
+`CREAM` | `OINTMENT` | `SOLUTION` | `SUSPENSION` | `OTHER`), and a pack size
+— `packSize` with `packUnit`: a count (`tablets`/`capsules`) for tablets and
+capsules, a volume (`ml`, or `g` for creams/ointments) for the rest
+(`checkProductFields`). The server builds `productName` from them
+("Paracetamol 500mg Tablets", a bracketed note like "(Vet)" last —
+`composeProductName` in `src/lib/products.ts`), so the MES, reports and
+product-timing search keep working on one string. Batches from before these
+fields have only `productName`; the edit form splits it up
+(`parseProductName`) and only sends the parts if they're changed.
+
+`GET /api/batch-book/products?q=<text>` → `200 { products: [{ productName,
+medicineName, strength, dosageForm, packSize, packUnit, unit, batches,
+lastEnteredAt }] }` — products made before whose name contains every typed
+word, most-made first, with the details they were last entered with (older
+batches split from their name). The new-batch form offers these as you type;
+picking one fills the form in. In the form, product name and type are
+required to confirm; strength and pack size are optional.
+
 ### `PATCH /api/batch-book/:id`
 Edits a batch. Only the Batch Book's own fields can ever be patched —
 `batchType`, `departmentId`, `productName`, `quantity`, `unit`,

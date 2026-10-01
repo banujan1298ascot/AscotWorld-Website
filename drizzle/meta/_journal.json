@@ -64,6 +64,13 @@
       "when": 1790892524948,
       "tag": "0008_steady_weapon_omega",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790898576098,
+      "tag": "0009_bent_colossus",
+      "breakpoints": true
     }
   ]
 }

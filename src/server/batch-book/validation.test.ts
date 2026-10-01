@@ -5,7 +5,38 @@ import {
   canEditBatch,
   canEditFields,
   checkPriorityAndDestination,
+  checkProductFields,
 } from "./validation";
+
+describe("checkProductFields", () => {
+  it("accepts a fully described product, or nothing at all", () => {
+    expect(
+      checkProductFields({
+        medicineName: "Paracetamol",
+        strength: "500mg",
+        dosageForm: "TABLETS",
+        packSize: "28",
+        packUnit: "tablets",
+      }).ok,
+    ).toBe(true);
+    expect(checkProductFields({}).ok).toBe(true);
+  });
+
+  it("needs the pack unit to suit the type", () => {
+    expect(checkProductFields({ dosageForm: "SOLUTION", packSize: 100, packUnit: "ml" }).ok).toBe(true);
+    expect(checkProductFields({ dosageForm: "CREAM", packSize: 50, packUnit: "g" }).ok).toBe(true);
+    expect(checkProductFields({ dosageForm: "TABLETS", packSize: 100, packUnit: "ml" }).ok).toBe(false);
+    expect(checkProductFields({ dosageForm: "SUSPENSION", packSize: 28, packUnit: "tablets" }).ok).toBe(false);
+  });
+
+  it("refuses an unknown type, a bad size or a size without a unit", () => {
+    expect(checkProductFields({ dosageForm: "POWDER" }).ok).toBe(false);
+    expect(checkProductFields({ packSize: "-5", packUnit: "ml" }).ok).toBe(false);
+    expect(checkProductFields({ packSize: "lots", packUnit: "ml" }).ok).toBe(false);
+    expect(checkProductFields({ packSize: 28 }).ok).toBe(false);
+    expect(checkProductFields({ strength: "x".repeat(41) }).ok).toBe(false);
+  });
+});
 
 describe("checkPriorityAndDestination", () => {
   it("accepts the five destinations, a cleared one, or nothing at all", () => {

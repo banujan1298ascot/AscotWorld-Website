@@ -11,7 +11,14 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { batchDestinationEnum, batchStatusEnum, batchTypeEnum, stageArrivalEnum } from "./enums";
+import {
+  batchDestinationEnum,
+  batchStatusEnum,
+  batchTypeEnum,
+  dosageFormEnum,
+  packUnitEnum,
+  stageArrivalEnum,
+} from "./enums";
 import { departments } from "./departments";
 import { stageDefinitions } from "./stage-definitions";
 import { staff } from "./staff";
@@ -38,7 +45,19 @@ export const batchRecords = pgTable(
       .notNull()
       .references(() => departments.id, { onDelete: "restrict" }),
 
+    /** The full name shown and grouped by everywhere ("Paracetamol 500mg
+     *  Tablets"). For batches entered with the fields below, built from them
+     *  (composeProductName in src/lib/products.ts); older batches have only
+     *  this. */
     productName: text("product_name"),
+    /** The product as entered: "Paracetamol". */
+    medicineName: text("medicine_name"),
+    /** Free text, as written on the label: "500mg", "2mg/ml", "1%". */
+    strength: text("strength"),
+    dosageForm: dosageFormEnum("dosage_form"),
+    /** Per pack — tablets/capsules counted, liquids and creams by volume. */
+    packSize: numeric("pack_size"),
+    packUnit: packUnitEnum("pack_unit"),
     quantity: numeric("quantity"),
     unit: text("unit"),
     plannedManufactureDate: date("planned_manufacture_date"),
