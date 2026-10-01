@@ -127,10 +127,24 @@ function useApiResource<T>(path: string | null, pollMs?: number): Resource<T> {
         },
       );
     load(true);
-    const timer = pollMs ? window.setInterval(() => load(false), pollMs) : undefined;
+    if (!pollMs) {
+      return () => {
+        ignore = true;
+      };
+    }
+    // Polled while the tab is on screen; a hidden tab skips its ticks and
+    // catches up the moment it's looked at again.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") load(false);
+    }, pollMs);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load(false);
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       ignore = true;
-      if (timer) window.clearInterval(timer);
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [path, staffId, pollMs]);
 
@@ -150,8 +164,10 @@ export function useOutputReport(departmentId: string | undefined, range: OutputR
   );
 }
 
-/** Polled — the floor model is meant to show "right now". */
-export const STATION_POLL_MS = 15_000;
+/** Polled — the floor model is meant to show "right now", so a batch sent
+ *  forward or back shows up within a few seconds. One small count query a
+ *  tick, and nothing while the tab is hidden (see useApiResource). */
+export const STATION_POLL_MS = 3_000;
 
 export function useStationLoads(departmentId: string | undefined) {
   return useApiResource<{ stations: StationLoad[] }>(

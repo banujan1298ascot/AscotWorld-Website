@@ -316,6 +316,26 @@ body {
   animation: ambient-drift 9s ease-in-out infinite;
 }
 
+/* A live count that just changed: a quick scale-up and settle, so a number
+   moving on the floor model catches the eye. Re-runs because the element is
+   keyed on its value. */
+@keyframes count-pop {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.35);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-count-pop {
+  animation: count-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: center bottom;
+}
+
 /* Fills across a button while a press-and-hold is in progress, so the hold
    reads as deliberate rather than as an unresponsive tap. Duration is kept
    in step with HOLD_TO_ASSIGN_MS in the MES board. */

@@ -81,8 +81,10 @@ export default function ReportsPage() {
   const stationList = stations.data?.stations ?? [];
   const waitingTotal = stationList.reduce((n, s) => n + s.incoming + s.returned, 0);
   const inProgressTotal = stationList.reduce((n, s) => n + s.inProgress, 0);
-  const busiest = [...FLOOR_ROOMS].sort((a, b) => (loads[b.id]?.waiting ?? 0) - (loads[a.id]?.waiting ?? 0))[0];
-  const busiestWaiting = busiest ? (loads[busiest.id]?.waiting ?? 0) : 0;
+  // Busiest by everything in the room — incoming and in progress — the same
+  // number the floor model shows.
+  const busiest = [...FLOOR_ROOMS].sort((a, b) => (loads[b.id]?.total ?? 0) - (loads[a.id]?.total ?? 0))[0];
+  const busiestLoad = busiest ? loads[busiest.id] : undefined;
 
   const closed = data?.stageReworkRates.reduce((n, s) => n + s.totalClosed, 0) ?? 0;
   const reworked = data?.stageReworkRates.reduce((n, s) => n + s.sentBack + s.failed, 0) ?? 0;
@@ -183,16 +185,17 @@ export default function ReportsPage() {
                     <p className="text-[11px] font-semibold text-[#5b6b82]">being worked on</p>
                   </div>
                 </div>
-                {busiest && busiestWaiting > 0 ? (
+                {busiest && busiestLoad && busiestLoad.total > 0 ? (
                   <div className="mt-3 rounded-xl bg-[#eef2f7] px-3 py-2 text-xs">
-                    <p className="font-bold">Most waiting: {busiest.name}</p>
+                    <p className="font-bold">Busiest: {busiest.name}</p>
                     <p className="mt-0.5 text-[#5b6b82]">
-                      {busiestWaiting} batch{busiestWaiting === 1 ? "" : "es"} queued at{" "}
-                      {loads[busiest.id]?.stationNames.join(" and ")}.
+                      {busiestLoad.total} batch{busiestLoad.total === 1 ? "" : "es"} at{" "}
+                      {busiestLoad.stationNames.join(" and ")} — {busiestLoad.waiting} incoming,{" "}
+                      {busiestLoad.inProgress} in progress.
                     </p>
                   </div>
                 ) : (
-                  <p className="mt-3 text-xs text-[#5b6b82]">Every station&apos;s queue is clear.</p>
+                  <p className="mt-3 text-xs text-[#5b6b82]">Every station is clear.</p>
                 )}
               </>
             )}

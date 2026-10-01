@@ -4,7 +4,8 @@
  * Rotatable 3D model of the production floor, styled after the site's
  * floor-plan render: white walls on a pale tiled floor, glowing neon service
  * pipes tracing each room, stainless vessels, shelving and benches — with
- * each room's live count of batches waiting at its stations floating above
+ * each room's live count of batches at its stations (incoming + in
+ * progress) floating above
  * it. Built from primitives off the plan in src/lib/floorPlan.ts (no model
  * files to load or license) and loaded client-side only — see the dynamic
  * import in the reports page — so three.js never lands in another page's
@@ -782,9 +783,13 @@ function RoomLabel({
   width: number;
   ref: (el: HTMLDivElement | null) => void;
 }) {
-  const compact = width < 640;
+  // Compact below ~1000px: neighbouring rooms (Print and Checking sit side by
+  // side) are close enough on a narrower model for full-size cards to touch.
+  const compact = width < 1000;
   const Icon = ICONS[room.icon];
+  const total = load?.total ?? 0;
   const waiting = load?.waiting ?? 0;
+  const inProgress = load?.inProgress ?? 0;
   const stations = load?.stationNames.join(" · ") ?? "";
 
   return (
@@ -792,7 +797,9 @@ function RoomLabel({
       ref={ref}
       className="absolute left-0 top-0 opacity-0 transition-opacity duration-300 will-change-transform"
       role="img"
-      aria-label={`${room.name}: ${waiting} batch${waiting === 1 ? "" : "es"} incoming${stations ? ` (${stations})` : ""}`}
+      aria-label={`${room.name}: ${total} batch${total === 1 ? "" : "es"} — ${waiting} incoming, ${inProgress} in progress${
+        stations ? ` (${stations})` : ""
+      }`}
       title={stations}
     >
       <div className="flex items-center">
@@ -819,10 +826,29 @@ function RoomLabel({
             ))}
           </span>
           <span className="mt-0.5 flex items-baseline gap-1">
-            <span className={`font-bold tabular-nums ${compact ? "text-[15px]" : "text-[22px]"}`} style={{ color: room.accent }}>
-              {waiting}
+            {/* Keyed on the value, so the number re-mounts and pops each
+                time a batch moves in or out of the room. */}
+            <span
+              key={total}
+              className={`animate-count-pop inline-block font-bold tabular-nums ${compact ? "text-[15px]" : "text-[22px]"}`}
+              style={{ color: room.accent }}
+            >
+              {total}
             </span>
-            <span className={`font-semibold text-[#64748b] ${compact ? "text-[9px]" : "text-[10.5px]"}`}>incoming</span>
+            <span className={`font-semibold text-[#64748b] ${compact ? "text-[9px]" : "text-[10.5px]"}`}>
+              batch{total === 1 ? "" : "es"}
+            </span>
+          </span>
+          {/* Split on two short lines rather than one long one, so the card
+              stays as narrow as the room name and neighbouring rooms' cards
+              don't collide. */}
+          <span
+            className={`mt-0.5 block font-semibold leading-[1.25] tabular-nums text-[#64748b] ${
+              compact ? "text-[8.5px]" : "text-[10px]"
+            }`}
+          >
+            <span className="block">{waiting} incoming</span>
+            <span className="block">{inProgress} in progress</span>
           </span>
         </span>
       </div>
@@ -932,7 +958,7 @@ function Scene({
           key={room.id}
           paths={room.pipes}
           color={room.pipeColor}
-          waiting={loads[room.id]?.waiting ?? 0}
+          waiting={loads[room.id]?.total ?? 0}
           animate={!reducedMotion}
           glowFalloff={m.glowFalloff}
         />

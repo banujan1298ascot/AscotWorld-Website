@@ -5,7 +5,8 @@
  *
  * ── WHICH STATION IS IN WHICH ROOM ─────────────────────────────────────────
  * `stationSequences` is the only thing tying a room to the MES: a room's
- * number on the model is the total of batches waiting at those stations.
+ * number on the model is every batch at those stations — waiting plus in
+ * progress.
  * Change the numbers here to move a station to another room; nothing else
  * needs touching. A station listed in no room simply doesn't appear on the
  * model (it still shows everywhere else in the report).
@@ -237,6 +238,9 @@ export const FLOOR_LIGHTS: PlanPoint[] = [
 export const FLOOR_CENTER: PlanPoint = [5.15, 7.375];
 
 export interface RoomLoad {
+  /** Every batch at the room's stations right now: waiting + in progress.
+   *  The number shown on the floor model. */
+  total: number;
   /** Waiting to be picked up: Incoming + Returned. */
   waiting: number;
   /** Of those, how many came back for rework. */
@@ -255,10 +259,13 @@ export function roomLoads(
     const mine = stations
       .filter((s) => room.stationSequences.includes(s.sequenceNumber))
       .sort((a, b) => a.sequenceNumber - b.sequenceNumber);
+    const waiting = mine.reduce((n, s) => n + s.incoming + s.returned, 0);
+    const inProgress = mine.reduce((n, s) => n + s.inProgress, 0);
     out[room.id] = {
-      waiting: mine.reduce((n, s) => n + s.incoming + s.returned, 0),
+      total: waiting + inProgress,
+      waiting,
       returned: mine.reduce((n, s) => n + s.returned, 0),
-      inProgress: mine.reduce((n, s) => n + s.inProgress, 0),
+      inProgress,
       stationNames: mine.map((s) => s.stageName),
     };
   }
