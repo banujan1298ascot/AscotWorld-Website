@@ -31,7 +31,7 @@ import { Avatar, Button, Card, EmptyState, ErrorNotice, Field, Modal, PageHeader
 import { useAuth } from "@/lib/auth";
 import { BATCH_BOOK_STATUS_LABELS, useDepartments, type BatchRecord } from "@/lib/batchBook";
 import { canRecordLabels, LABEL_STATION_SEQUENCE, useStageQueue, useStages, type InProgressEntry } from "@/lib/mes";
-import { BatchFlags, flaggedCardStyle, urgentFirst } from "@/components/mes/BatchFlags";
+import { BatchFlags, flaggedSurface, urgentFirst } from "@/components/mes/BatchFlags";
 import { LabelsButton, LabelsModal } from "@/components/mes/LabelsModal";
 import { StationCounters } from "@/components/mes/StationCounters";
 import { useStageArrivalAlerts } from "@/lib/mesAlerts";
@@ -478,8 +478,8 @@ export function MesBoard({ viewSwitch }: { viewSwitch: ReactNode }) {
                     <DragOverlay dropAnimation={DROP_ANIMATION}>
                       {draggingBatch ? (
                         <Card
-                          className="rotate-2 cursor-grabbing border-[var(--primary)] shadow-[var(--shadow-overlay)]"
-                          style={flaggedCardStyle(draggingBatch)}
+                          className={`rotate-2 cursor-grabbing border-[var(--primary)] shadow-[var(--shadow-overlay)] ${flaggedSurface(draggingBatch).className}`}
+                          style={flaggedSurface(draggingBatch).style}
                         >
                           <BatchCardBody batch={draggingBatch} />
                         </Card>
@@ -1055,8 +1055,8 @@ function DraggableBatchCard({
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      style={flaggedCardStyle(batch)}
-      className={`cursor-grab touch-none select-none transition-[transform,opacity,border-color] duration-150 active:cursor-grabbing ${
+      style={flaggedSurface(batch).style}
+      className={`${flaggedSurface(batch).className} cursor-grab touch-none select-none transition-[transform,opacity,border-color] duration-150 active:cursor-grabbing ${
         // Left behind as a placeholder while the overlay copy is dragged.
         isDragging ? "opacity-40 border-dashed" : ""
       } ${holding ? "scale-[0.98] border-[var(--primary)]" : ""} ${
@@ -1101,8 +1101,8 @@ function InProgressCard({
       ref={setNodeRef}
       {...(isMine ? listeners : {})}
       {...(isMine ? attributes : {})}
-      style={flaggedCardStyle(entry.batch)}
-      className={`transition-[transform,opacity,border-color] duration-150 ${
+      style={flaggedSurface(entry.batch).style}
+      className={`${flaggedSurface(entry.batch).className} transition-[transform,opacity,border-color] duration-150 ${
         canAct ? "cursor-grab touch-none active:cursor-grabbing" : ""
       } ${isDragging ? "opacity-40 border-dashed" : ""} ${holding ? "scale-[0.98] border-[var(--primary)]" : ""}`}
     >

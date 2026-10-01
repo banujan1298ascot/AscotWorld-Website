@@ -4,65 +4,47 @@ import { BATCH_DESTINATION_LABELS, type BatchRecord } from "@/lib/batchBook";
 
 /*
  * Flags set at Batch Book entry that follow a batch through every MES
- * station: Urgent shows amber, stock for Ireland shows neon green. Colour is
- * never the only signal — every flagged card or row also carries a text
- * badge — and a batch that's both gets both: an amber tint (urgency wins the
- * background) with a split amber/green edge stripe and both badges.
+ * station: an urgent batch's card or row is filled solid amber, stock for
+ * Ireland solid neon green — gradients in the style of the station banner.
+ * A batch that's both runs amber into green. Colour is never the only
+ * signal: every flagged batch also carries text badges.
  */
 
 type Flaggable = Pick<BatchRecord, "urgent" | "destination">;
 
 const isIreland = (batch: Flaggable) => batch.destination === "IRELAND";
 
-/** Does this batch get any highlight at all? */
+/** Does this batch get a highlight at all? */
 export function isFlagged(batch: Flaggable): boolean {
   return batch.urgent || isIreland(batch);
 }
 
-/** The edge stripe as a background layer — a layer rather than a border so
- *  it follows the card's rounded corners and can be split two ways. */
-function stripeLayer(batch: Flaggable, width: number): string | null {
-  const urgent = batch.urgent;
-  const ireland = isIreland(batch);
-  if (!urgent && !ireland) return null;
-  const colours =
-    urgent && ireland
-      ? "var(--urgent) 0 50%, var(--ireland) 50% 100%"
-      : urgent
-        ? "var(--urgent), var(--urgent)"
-        : "var(--ireland), var(--ireland)";
-  return `linear-gradient(to bottom, ${colours}) left top / ${width}px 100% no-repeat`;
-}
-
-function tint(batch: Flaggable): string {
-  return batch.urgent ? "var(--urgent-bg)" : "var(--ireland-bg)";
-}
-
-/** Style for an MES board card: tinted, coloured border, edge stripe. */
-export function flaggedCardStyle(batch: Flaggable): CSSProperties | undefined {
-  const stripe = stripeLayer(batch, 5);
-  if (!stripe) return undefined;
-  return {
-    background: `${stripe}, ${tint(batch)}`,
-    borderColor: batch.urgent ? "var(--urgent)" : "var(--ireland)",
-  };
-}
-
-/** Style for a table row: the tint across the whole row. */
-export function flaggedRowStyle(batch: Flaggable): CSSProperties | undefined {
-  return isFlagged(batch) ? { background: tint(batch) } : undefined;
-}
-
-/** Style for a row's first cell, which carries the edge stripe. */
-export function flaggedFirstCellStyle(batch: Flaggable): CSSProperties | undefined {
-  const stripe = stripeLayer(batch, 5);
-  return stripe ? { background: stripe } : undefined;
+function gradient(batch: Flaggable): string | null {
+  if (batch.urgent && isIreland(batch)) return "var(--urgent-ireland-gradient)";
+  if (batch.urgent) return "var(--urgent-gradient)";
+  if (isIreland(batch)) return "var(--ireland-gradient)";
+  return null;
 }
 
 /**
- * The text badges: URGENT, and the destination. Ireland is filled neon
- * green; the other markets are a plain outlined tag so the market is always
- * readable without competing with the two highlights.
+ * Class and style for a flagged card or table row: the solid gradient, plus
+ * `.batch-flagged` (globals.css), which re-points the theme colours inside
+ * it so text and controls stay legible on the fill. Empty for an ordinary
+ * batch.
+ */
+export function flaggedSurface(batch: Flaggable): { className: string; style?: CSSProperties } {
+  const fill = gradient(batch);
+  if (!fill) return { className: "" };
+  // Ireland-only gets green-tinted ink; anything urgent keeps the amber ink.
+  const ink = batch.urgent ? "" : " batch-flagged--ireland";
+  return { className: `batch-flagged${ink}`, style: { background: fill } };
+}
+
+/**
+ * The text badges: URGENT, and the destination. The two highlights are dark
+ * pills lettered in their flag colour, so they read on a flagged card's
+ * bright fill and on a plain card or row alike; other markets are a quiet
+ * outlined tag.
  */
 export function BatchFlags({ batch, className = "" }: { batch: Flaggable; className?: string }) {
   if (!batch.urgent && !batch.destination) return null;
@@ -71,7 +53,7 @@ export function BatchFlags({ batch, className = "" }: { batch: Flaggable; classN
       {batch.urgent ? (
         <span
           className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide"
-          style={{ background: "var(--urgent)", color: "var(--urgent-ink)" }}
+          style={{ background: "#2b1b00", color: "#fcd34d" }}
         >
           <Warning size={11} weight="fill" />
           Urgent
@@ -81,7 +63,7 @@ export function BatchFlags({ batch, className = "" }: { batch: Flaggable; classN
         isIreland(batch) ? (
           <span
             className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide"
-            style={{ background: "var(--ireland)", color: "var(--ireland-ink)" }}
+            style={{ background: "#062b00", color: "#39ff14" }}
           >
             <GlobeHemisphereWest size={11} weight="fill" />
             Ireland

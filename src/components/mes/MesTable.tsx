@@ -19,7 +19,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { useDepartments, type BatchRecord } from "@/lib/batchBook";
 import { canRecordLabels, LABEL_STATION_SEQUENCE, useAllStageQueues, useStages, type StageDefinition } from "@/lib/mes";
-import { BatchFlags, flaggedFirstCellStyle, flaggedRowStyle } from "@/components/mes/BatchFlags";
+import { BatchFlags, flaggedSurface } from "@/components/mes/BatchFlags";
 import { LabelsButton, LabelsModal } from "@/components/mes/LabelsModal";
 import { StationCounters } from "@/components/mes/StationCounters";
 import { staffCollection } from "@/lib/seed";
@@ -453,14 +453,19 @@ function TableRow({
 
   const forwardLabel = nextStage ? `Done → send to ${nextStage.name}` : "Done → complete (leaves the pipeline)";
 
+  // A flagged batch's row is filled with its solid gradient (BatchFlags) —
+  // except while a change to it is being confirmed, when the usual
+  // highlight shows which row that is.
+  const flagged = pending ? { className: "" } : flaggedSurface(batch);
+
   return (
     <tr
-      className={`border-b border-[var(--border)] transition-colors last:border-0 ${
+      className={`border-b border-[var(--border)] transition-colors last:border-0 ${flagged.className} ${
         pending ? "bg-[var(--brand-50)]" : "hover:bg-[var(--surface-sunken)]"
       }`}
-      style={pending ? undefined : flaggedRowStyle(batch)}
+      style={flagged.style}
     >
-      <td className="px-4 py-2" style={flaggedFirstCellStyle(batch)}>
+      <td className="px-4 py-2">
         <span className="block font-mono text-[13px] font-semibold">{label(batch)}</span>
         <BatchFlags batch={batch} className="mt-1" />
       </td>

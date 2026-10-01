@@ -86,6 +86,14 @@
   --ireland-ink: #062b00;
   --ireland-bg: #edffe8;
   --ireland-foreground: #1a6b0c;
+  /* Solid fills for a flagged MES card or row, in the same left-to-right
+     style as --brand-gradient on the station banner. Bright enough to stand
+     out on either theme, so not redefined for dark mode; text on them is
+     dark (see .batch-flagged below). A batch that's both runs amber into
+     green. */
+  --urgent-gradient: linear-gradient(90deg, #fcd34d 0%, #f59e0b 55%, #ea8a04 100%);
+  --ireland-gradient: linear-gradient(90deg, #a3ff8a 0%, #39ff14 50%, #22c90d 100%);
+  --urgent-ireland-gradient: linear-gradient(90deg, #fcd34d 0%, #f59e0b 38%, #39ff14 68%, #22c90d 100%);
 
   /* --- dense dashboard spacing scale ------------------------------------ */
   --space-1: 0.25rem;
@@ -340,6 +348,45 @@ body {
   transform: translateY(-3px);
   border-color: var(--primary);
   box-shadow: var(--shadow-glow);
+}
+
+/* A flagged MES batch (urgent / Ireland) filled with its solid gradient —
+   see src/components/mes/BatchFlags.tsx. The theme's text, surface and
+   border colours are re-pointed inside it, so everything on the card (text,
+   buttons, dropdowns) stays legible on the bright fill in either theme:
+   dark ink for text, frosted white for controls. */
+.batch-flagged {
+  --foreground: #1f1400;
+  --muted-foreground: rgb(31 20 0 / 0.84);
+  --subtle-foreground: rgb(31 20 0 / 0.7);
+  --surface: rgb(255 255 255 / 0.62);
+  --surface-sunken: rgb(255 255 255 / 0.4);
+  --border: rgb(31 20 0 / 0.2);
+  --border-strong: rgb(31 20 0 / 0.32);
+  /* Status text sits on the frosted controls, so it keeps dark tones even in
+     dark mode — the theme's light ones would wash out on white. */
+  --status-scheduled: #3f4b5e;
+  --status-scheduled-bg: rgb(255 255 255 / 0.72);
+  --status-production: #1e3fae;
+  --status-production-bg: rgb(255 255 255 / 0.72);
+  --status-qa: #7a2c0c;
+  --status-qa-bg: rgb(255 255 255 / 0.72);
+  --status-released: #05573f;
+  --status-released-bg: rgb(255 255 255 / 0.72);
+  --status-cancelled: #941b1b;
+  --status-cancelled-bg: rgb(255 255 255 / 0.72);
+  --warning: #7a2c0c;
+  --danger: #941b1b;
+  --danger-bg: rgb(255 255 255 / 0.72);
+  color: var(--foreground);
+  border-color: transparent;
+}
+.batch-flagged--ireland {
+  --foreground: #052400;
+  --muted-foreground: rgb(5 36 0 / 0.84);
+  --subtle-foreground: rgb(5 36 0 / 0.7);
+  --border: rgb(5 36 0 / 0.2);
+  --border-strong: rgb(5 36 0 / 0.32);
 }
 
 /* Faint brand-coloured wash behind the portal shell, echoing the molecule
