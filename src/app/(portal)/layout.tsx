@@ -8,6 +8,7 @@ import {
   Bell,
   Moon,
   Prohibit,
+  SidebarSimple,
   SignOut,
   Sun,
 } from "@phosphor-icons/react/dist/ssr";
@@ -18,6 +19,7 @@ import { useAuth } from "@/lib/auth";
 import { useUnreadMessageCount } from "@/lib/messaging";
 import { useUnreadNotificationCount } from "@/lib/notifications";
 import { useDueTomorrowReminders } from "@/lib/reminders";
+import { useSidebarHidden } from "@/lib/sidebar";
 import { resetAllDemoData } from "@/lib/storage";
 import { useTheme } from "@/lib/theme";
 import { ROLES, type StaffMember } from "@/lib/types";
@@ -63,6 +65,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   // stays fixed regardless of auth state — see the comment on the hook.
   const badges = useModuleBadges(user?.id);
   useDueTomorrowReminders(user?.id);
+  const [sidebarHidden, setSidebarHidden] = useSidebarHidden();
 
   useEffect(() => {
     if (ready && !user) router.replace("/login");
@@ -88,40 +91,55 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const forbidden = current ? !canAccessModule(current, user.role) : false;
 
   return (
-    <div className="portal-ambient min-h-dvh lg:grid lg:grid-cols-[15rem_1fr]">
-      {/* ================= Sidebar (desktop) ================= */}
+    <div
+      className={`portal-ambient min-h-dvh lg:grid lg:transition-[grid-template-columns] lg:duration-300 lg:ease-out ${
+        sidebarHidden ? "lg:grid-cols-[0rem_1fr]" : "lg:grid-cols-[15rem_1fr]"
+      }`}
+    >
+      {/* ================= Sidebar (desktop) =================
+          Can be hidden from the top bar for more room. It slides shut rather
+          than unmounting, and goes inert while hidden so its links drop out
+          of the tab order. */}
       <aside
-        className="sticky top-0 hidden h-dvh flex-col border-r border-[var(--glass-border)] backdrop-blur-xl lg:flex"
+        id="portal-sidebar"
+        inert={sidebarHidden}
+        aria-hidden={sidebarHidden || undefined}
+        className={`sticky top-0 hidden h-dvh overflow-hidden backdrop-blur-xl transition-opacity duration-300 lg:block ${
+          sidebarHidden ? "opacity-0" : "border-r border-[var(--glass-border)] opacity-100"
+        }`}
         style={{ background: "var(--glass-bg)" }}
       >
-        <div className="px-4 py-4">
-          <Link href="/dashboard" className="inline-block rounded" aria-label="AscotWorld portal home">
-            <Logo size={24} descriptor="WORLD" />
-          </Link>
+        {/* Fixed width, so the contents slide away instead of squashing. */}
+        <div className="flex h-full w-60 flex-col">
+          <div className="px-4 py-4">
+            <Link href="/dashboard" className="inline-block rounded" aria-label="AscotWorld portal home">
+              <Logo size={24} descriptor="WORLD" />
+            </Link>
+          </div>
+
+          <nav className="flex-1 overflow-y-auto px-2.5 pb-3" aria-label="Portal sections">
+            {groups.map((group) => (
+              <div key={group.group} className="mb-4">
+                <p className="px-2 pb-1.5 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[var(--subtle-foreground)]">
+                  {group.label}
+                </p>
+                <ul className="grid gap-0.5">
+                  {group.modules.map((module) => (
+                    <li key={module.id}>
+                      <SidebarLink
+                        module={module}
+                        active={current?.id === module.id}
+                        badge={badges[module.id] ?? 0}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </nav>
+
+          <UserPanel user={user} onSignOut={signOut} />
         </div>
-
-        <nav className="flex-1 overflow-y-auto px-2.5 pb-3" aria-label="Portal sections">
-          {groups.map((group) => (
-            <div key={group.group} className="mb-4">
-              <p className="px-2 pb-1.5 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[var(--subtle-foreground)]">
-                {group.label}
-              </p>
-              <ul className="grid gap-0.5">
-                {group.modules.map((module) => (
-                  <li key={module.id}>
-                    <SidebarLink
-                      module={module}
-                      active={current?.id === module.id}
-                      badge={badges[module.id] ?? 0}
-                    />
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </nav>
-
-        <UserPanel user={user} onSignOut={signOut} />
       </aside>
 
       {/* ================= Main column ================= */}
@@ -130,6 +148,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
           sectionLabel={current?.label ?? "Portal"}
           onSignOut={signOut}
           notificationCount={badges.notifications ?? 0}
+          sidebarHidden={sidebarHidden}
+          onToggleSidebar={() => setSidebarHidden(!sidebarHidden)}
         />
 
         <main className="flex-1 px-4 py-5 pb-24 sm:px-6 lg:pb-8">
@@ -220,10 +240,14 @@ function TopBar({
   sectionLabel,
   onSignOut,
   notificationCount,
+  sidebarHidden,
+  onToggleSidebar,
 }: {
   sectionLabel: string;
   onSignOut: () => void;
   notificationCount: number;
+  sidebarHidden: boolean;
+  onToggleSidebar: () => void;
 }) {
   const { theme, toggle } = useTheme();
   return (
@@ -232,9 +256,24 @@ function TopBar({
       style={{ background: "var(--glass-bg)" }}
     >
       <div className="flex min-w-0 items-center gap-2.5">
+        {/* Desktop only — on smaller screens the menu is the bottom bar. */}
+        <button
+          type="button"
+          onClick={onToggleSidebar}
+          aria-controls="portal-sidebar"
+          aria-expanded={!sidebarHidden}
+          aria-label={sidebarHidden ? "Show menu" : "Hide menu"}
+          title={sidebarHidden ? "Show menu" : "Hide menu"}
+          className="-ml-1.5 hidden h-9 w-9 cursor-pointer place-items-center rounded-md text-[var(--muted-foreground)]
+            transition-[background-color,color,transform,box-shadow] duration-200
+            hover:bg-[var(--surface-sunken)] hover:text-foreground hover:shadow-[var(--shadow-glow)] lg:grid"
+        >
+          <SidebarSimple size={18} weight={sidebarHidden ? "bold" : "fill"} />
+        </button>
+        {/* The sidebar carries the logo; with it hidden, the bar does. */}
         <Link
           href="/dashboard"
-          className="rounded lg:hidden"
+          className={`rounded ${sidebarHidden ? "" : "lg:hidden"}`}
           aria-label="AscotWorld portal home"
         >
           <Logo size={20} descriptor={null} />
