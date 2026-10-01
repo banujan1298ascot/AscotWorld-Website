@@ -20,6 +20,7 @@ import {
   canRunStation,
   canSendBack,
   checkAssignee,
+  checkLabelsBeforeForward,
   checkOperatorRole,
   type StageForAuth,
 } from "./validation";
@@ -258,6 +259,8 @@ export async function forwardBatch(stageId: string, batchId: string, actingStaff
 
     const permission = canForward(actingStaff);
     if (!permission.ok) throw new ApiError(403, permission.error);
+    const labels = checkLabelsBeforeForward(stage, batch);
+    if (!labels.ok) throw new ApiError(422, labels.error);
 
     const [nextStage] = await tx
       .select()

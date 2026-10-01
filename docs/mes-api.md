@@ -359,6 +359,11 @@ or e.g. "550 printed · 25 reprinted"); in the table it's the Labels column.
   refused, Check 1 included (`canRecordLabels`).
 - **When:** while the batch is at Check 2 (in its queue, waiting or in
   progress) — a batch sent back to Check 2 can have reprints added.
+- **Required before sending on (`checkLabelsBeforeForward`):** Check 2
+  can't forward a batch until its first print is recorded — the forward
+  endpoint answers `422`. On the board and table, sending such a batch on
+  opens the labels dialog instead, which carries on with the move once the
+  first print is saved. Reprints stay optional.
 - **Rules (`checkLabelRun`):** whole number above zero; a reprint needs a
   first print first; correcting a first print already recorded needs a
   reason. Reprint reasons are optional.

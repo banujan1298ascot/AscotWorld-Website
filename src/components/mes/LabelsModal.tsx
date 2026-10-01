@@ -19,6 +19,7 @@ export function LabelsModal({
   canEdit,
   onClose,
   onSaved,
+  sendOn,
 }: {
   batch: BatchRecord;
   stageName: string;
@@ -27,9 +28,18 @@ export function LabelsModal({
   onClose: () => void;
   /** After a save, so the caller can refresh the batch's totals. */
   onSaved?: () => void;
+  /**
+   * Set when this opened because someone tried to send the batch on before
+   * recording its labels (Check 2 can't forward without them). Explains why
+   * up top, and once the first print is saved offers to carry on with the
+   * move that was asked for.
+   */
+  sendOn?: { label: string; run: () => Promise<void> };
 }) {
   const { labels, error: loadError, ready, record } = useLabelRecord(batch.id);
   const [correcting, setCorrecting] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const firstPrint = labels?.labelsPrinted ?? null;
   const reprinted = labels?.labelsReprinted ?? 0;
@@ -40,6 +50,18 @@ export function LabelsModal({
     onSaved?.();
   }
 
+  async function continueSending() {
+    if (!sendOn) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      await sendOn.run();
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "That didn't go through.");
+      setSending(false);
+    }
+  }
+
   return (
     <Modal
       open
@@ -47,13 +69,34 @@ export function LabelsModal({
       title={`Labels — ${batch.batchNumber ?? "batch"}`}
       description={batch.productName ?? undefined}
       footer={
-        <Button variant="secondary" onClick={onClose}>
-          Done
-        </Button>
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={sending}>
+            {sendOn ? "Cancel" : "Done"}
+          </Button>
+          {sendOn ? (
+            <Button
+              variant="primary"
+              disabled={firstPrint === null || sending}
+              onClick={() => void continueSending()}
+            >
+              {sending ? "Sending…" : sendOn.label}
+            </Button>
+          ) : null}
+        </>
       }
     >
       <div className="grid gap-4">
+        {sendOn && firstPrint === null ? (
+          <p
+            role="alert"
+            className="rounded-md border px-3 py-2 text-[13px] font-semibold"
+            style={{ borderColor: "var(--warning)", color: "var(--warning)", background: "var(--status-qa-bg)" }}
+          >
+            Record how many labels were printed before sending this batch on.
+          </p>
+        ) : null}
         {loadError ? <ErrorNotice message={loadError} /> : null}
+        {sendError ? <ErrorNotice message={sendError} /> : null}
 
         {!ready ? (
           <Skeleton className="h-20 w-full" />

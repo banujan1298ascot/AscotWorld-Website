@@ -9,6 +9,7 @@ import {
   canSendBack,
   checkAssignee,
   checkLabelRun,
+  checkLabelsBeforeForward,
   checkOperatorRole,
 } from "./validation";
 
@@ -39,6 +40,19 @@ describe("canRecordLabels", () => {
     expect(
       canRecordLabels({ id: "a", role: "admin" }, { sequenceNumber: 3, name: "Dispensary", operatorRole: null }).ok,
     ).toBe(false);
+  });
+});
+
+describe("checkLabelsBeforeForward", () => {
+  it("holds a Check 2 batch until its first print is recorded", () => {
+    expect(checkLabelsBeforeForward({ sequenceNumber: 2 }, { labelsPrinted: null }).ok).toBe(false);
+    expect(checkLabelsBeforeForward({ sequenceNumber: 2 }, { labelsPrinted: 500 }).ok).toBe(true);
+  });
+
+  it("doesn't affect any other station", () => {
+    for (const sequenceNumber of [3, 4, 5, 6, 7]) {
+      expect(checkLabelsBeforeForward({ sequenceNumber }, { labelsPrinted: null }).ok).toBe(true);
+    }
   });
 });
 

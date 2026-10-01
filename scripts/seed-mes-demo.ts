@@ -29,11 +29,13 @@ import {
   batchCounters,
   batchRecords,
   departments,
+  labelPrintRuns,
   stageDefinitions,
   stageTransitions,
 } from "../src/server/db/schema";
 import type { ActingStaff } from "../src/server/actingStaff";
 import { confirmBatch, createDraft, type CreateDraftInput } from "../src/server/batch-book/service";
+import { recordLabelRun } from "../src/server/mes/labels";
 import { claimBatch, failBatch, forwardBatch, sendBatchBack } from "../src/server/mes/service";
 import { seedProductionHistory } from "./demo-history";
 
@@ -172,6 +174,7 @@ async function main() {
   if (reset) {
     // Order matters: audit entries and transitions both reference batches.
     await db.delete(auditLogEntries);
+    await db.delete(labelPrintRuns);
     await db.delete(stageTransitions);
     await db.delete(batchRecords);
     await db.delete(batchCounters);
@@ -198,9 +201,15 @@ async function main() {
 
   /** Walks a batch from its current stage up to `target`, each hop claimed
    *  and forwarded straight away by a pool operator. */
+  let labelRuns = 0;
   async function advance(batchId: string, from: number, target: number) {
     for (let stage = from; stage < target; stage++) {
       const actor = await start(stageId(stage), stage, batchId, nextOperator(stage));
+      // Check 2 can't send a batch on without recording its labels.
+      if (stage === 2) {
+        const quantity = 120 + ((labelRuns++ * 37) % 480);
+        await recordLabelRun(batchId, { kind: "FIRST_PRINT", quantity }, actor);
+      }
       await forwardBatch(stageId(stage), batchId, actor);
     }
   }

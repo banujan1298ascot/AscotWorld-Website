@@ -122,6 +122,8 @@ export function MesBoard({ viewSwitch }: { viewSwitch: ReactNode }) {
   const [assigningBatchId, setAssigningBatchId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [labelsBatch, setLabelsBatch] = useState<BatchRecord | null>(null);
+  /** The labels dialog was opened by a forward that needs them first. */
+  const [labelsThenForward, setLabelsThenForward] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -209,7 +211,19 @@ export function MesBoard({ viewSwitch }: { viewSwitch: ReactNode }) {
       if (!canSelfClaim) setAssigningBatchId(batch.id);
       else setPendingMove({ action: "claim", batch });
     }
-    else if (zone === "zone-forward" && canActOn(batch.id)) setPendingMove({ action: "forward", batch });
+    else if (zone === "zone-forward" && canActOn(batch.id)) {
+      if (needsLabels(batch)) askForLabelsThenForward(batch);
+      else setPendingMove({ action: "forward", batch });
+    }
+  }
+
+  /** Check 2 can't send a batch on until its labels are recorded (the
+   *  server refuses too) — so a forward without them opens the labels
+   *  dialog, which then offers to carry on with the move. */
+  const needsLabels = (batch: BatchRecord) => labelStation && batch.labelsPrinted === null;
+  function askForLabelsThenForward(batch: BatchRecord) {
+    setLabelsBatch(batch);
+    setLabelsThenForward(true);
   }
 
   async function runAction(action: () => Promise<unknown>) {
@@ -523,7 +537,8 @@ export function MesBoard({ viewSwitch }: { viewSwitch: ReactNode }) {
           onForward={async () => {
             const batch = holdMenuBatch;
             setHoldMenuBatch(null);
-            await runAction(() => forward(batch.id));
+            if (needsLabels(batch)) askForLabelsThenForward(batch);
+            else await runAction(() => forward(batch.id));
           }}
           onAssign={() => {
             setAssigningBatchId(holdMenuBatch.id);
@@ -567,8 +582,23 @@ export function MesBoard({ viewSwitch }: { viewSwitch: ReactNode }) {
           batch={labelsBatch}
           stageName={currentStage?.name ?? `Check ${LABEL_STATION_SEQUENCE}`}
           canEdit={mayRecordLabels}
-          onClose={() => setLabelsBatch(null)}
+          onClose={() => {
+            setLabelsBatch(null);
+            setLabelsThenForward(false);
+          }}
           onSaved={() => void refresh()}
+          sendOn={
+            labelsThenForward
+              ? {
+                  label: nextStage ? `Send to ${nextStage.name}` : "Complete batch",
+                  run: async () => {
+                    await runAction(() => forward(labelsBatch.id));
+                    setLabelsBatch(null);
+                    setLabelsThenForward(false);
+                  },
+                }
+              : undefined
+          }
         />
       ) : null}
 

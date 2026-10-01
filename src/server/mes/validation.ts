@@ -174,6 +174,21 @@ export function canRecordLabels(
 }
 
 /**
+ * Check 2 can't send a batch on until it has recorded how many labels it
+ * printed — the first print at least. Reprints are optional. No other
+ * station is affected.
+ */
+export function checkLabelsBeforeForward(
+  stage: { sequenceNumber: number },
+  batch: { labelsPrinted: number | null },
+): Verdict {
+  if (stage.sequenceNumber === LABEL_STATION_SEQUENCE && batch.labelsPrinted === null) {
+    return { ok: false, error: "Record how many labels were printed before sending this batch on." };
+  }
+  return { ok: true };
+}
+
+/**
  * Is this print run well-formed? A reprint needs a first print to follow,
  * and correcting a first print that's already recorded needs a reason — the
  * old figure stays in the history, so the record says why it changed.

@@ -12,7 +12,16 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { ActingStaff } from "../actingStaff";
 import { confirmBatch, createDraft } from "../batch-book/service";
 import { db } from "../db/client";
-import { auditLogEntries, batchRecords, departments, stageDefinitions, stageTransitions, staff } from "../db/schema";
+import {
+  auditLogEntries,
+  batchRecords,
+  departments,
+  labelPrintRuns,
+  stageDefinitions,
+  stageTransitions,
+  staff,
+} from "../db/schema";
+import { recordLabelRun } from "./labels";
 import { claimBatch, failBatch, forwardBatch, getStageQueue, reassignBatch, sendBatchBack } from "./service";
 
 const RUN = Boolean(process.env.DATABASE_URL);
@@ -108,6 +117,7 @@ describe.skipIf(!RUN)("MES service (integration)", () => {
       // audit_log_entries -> batch_records is ON DELETE RESTRICT, so the
       // trail has to go before the batches it points at.
       await db.delete(auditLogEntries).where(inArray(auditLogEntries.batchId, createdBatchIds));
+      await db.delete(labelPrintRuns).where(inArray(labelPrintRuns.batchId, createdBatchIds));
       await db.delete(batchRecords).where(inArray(batchRecords.id, createdBatchIds));
     }
     if (departmentId) {
@@ -117,11 +127,27 @@ describe.skipIf(!RUN)("MES service (integration)", () => {
     await db.delete(staff).where(inArray(staff.id, [dataEntry.id, operator.id, otherOperator.id, supervisor.id]));
   });
 
-  async function confirmedBatchAtStage2() {
+  /** A batch waiting at stage 2. Its labels are recorded by default, since
+   *  stage 2 can't forward a batch without them — pass `labels: false` to
+   *  test that rule itself. */
+  async function confirmedBatchAtStage2({ labels = true }: { labels?: boolean } = {}) {
     const draft = await createDraft({ batchType: "A", departmentId, productName: "MES test product" }, dataEntry);
     createdBatchIds.push(draft.id);
-    return confirmBatch(draft.id, dataEntry);
+    const confirmed = await confirmBatch(draft.id, dataEntry);
+    if (labels) await recordLabelRun(confirmed.id, { kind: "FIRST_PRINT", quantity: 100 }, operator);
+    return confirmed;
   }
+
+  it("holds a batch at stage 2 until its labels are recorded", async () => {
+    const batch = await confirmedBatchAtStage2({ labels: false });
+    await claimBatch(stage2Id, batch.id, operator);
+    await expect(forwardBatch(stage2Id, batch.id, operator)).rejects.toThrow(/labels were printed/i);
+
+    await recordLabelRun(batch.id, { kind: "FIRST_PRINT", quantity: 250 }, operator);
+    const updated = await forwardBatch(stage2Id, batch.id, operator);
+    expect(updated.currentStageId).toBe(stage3Id);
+    expect(updated.labelsPrinted).toBe(250);
+  });
 
   it("dispatches a confirmed batch straight to stage 2, with stage 1 already closed out", async () => {
     const batch = await confirmedBatchAtStage2();

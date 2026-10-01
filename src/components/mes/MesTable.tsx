@@ -91,6 +91,8 @@ export function MesTable({ viewSwitch }: { viewSwitch: ReactNode }) {
   const [change, setChange] = useState<Change | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [labelsRow, setLabelsRow] = useState<Row | null>(null);
+  /** The labels dialog was opened by a "send on" that needs them first. */
+  const [labelsThenForward, setLabelsThenForward] = useState(false);
 
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = [];
@@ -347,6 +349,18 @@ export function MesTable({ viewSwitch }: { viewSwitch: ReactNode }) {
                       }
                       onChange={(next) => {
                         setActionError(null);
+                        // Check 2 can't send a batch on until its labels are
+                        // recorded (the server refuses too) — ask for them,
+                        // then carry on from the labels dialog.
+                        if (
+                          next.kind === "forward" &&
+                          next.row.stage.sequenceNumber === LABEL_STATION_SEQUENCE &&
+                          next.row.batch.labelsPrinted === null
+                        ) {
+                          setLabelsRow(next.row);
+                          setLabelsThenForward(true);
+                          return;
+                        }
                         setChange(next);
                       }}
                     />
@@ -363,8 +377,26 @@ export function MesTable({ viewSwitch }: { viewSwitch: ReactNode }) {
           batch={labelsRow.batch}
           stageName={labelsRow.stage.name}
           canEdit={mayRecordLabels(labelsRow.stage)}
-          onClose={() => setLabelsRow(null)}
+          onClose={() => {
+            setLabelsRow(null);
+            setLabelsThenForward(false);
+          }}
           onSaved={() => void pipeline.refresh()}
+          sendOn={
+            labelsThenForward
+              ? {
+                  label: (() => {
+                    const next = stageBySequence(labelsRow.stage.sequenceNumber + 1);
+                    return next ? `Send to ${next.name}` : "Complete batch";
+                  })(),
+                  run: async () => {
+                    await pipeline.forward(labelsRow.stage.id, labelsRow.batch.id);
+                    setLabelsRow(null);
+                    setLabelsThenForward(false);
+                  },
+                }
+              : undefined
+          }
         />
       ) : null}
 
@@ -451,7 +483,10 @@ function TableRow({
       ? `Only ${row.operatorName ?? "the operator"} can change this — it's assigned to them.`
       : undefined;
 
-  const forwardLabel = nextStage ? `Done → send to ${nextStage.name}` : "Done → complete (leaves the pipeline)";
+  const forwardLabel =
+    (nextStage ? `Done → send to ${nextStage.name}` : "Done → complete (leaves the pipeline)") +
+    // Check 2 has to record its labels first — picking this asks for them.
+    (stage.sequenceNumber === LABEL_STATION_SEQUENCE && batch.labelsPrinted === null ? " (record labels first)" : "");
 
   // A flagged batch's row is filled with its solid gradient (BatchFlags) —
   // except while a change to it is being confirmed, when the usual
