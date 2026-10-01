@@ -82,18 +82,20 @@
   --urgent-ink: #2a0b00;
   --urgent-bg: #ffebe0;
   --urgent-foreground: #a33100;
-  --ireland: #39ff14;
-  --ireland-ink: #062b00;
-  --ireland-bg: #edffe8;
-  --ireland-foreground: #1a6b0c;
-  /* Solid fills for a flagged MES card or row (urgent is built on #FF4D00),
-     left to right like --brand-gradient on the station banner. Bright enough to stand
-     out on either theme, so not redefined for dark mode; text on them is
-     dark (see .batch-flagged below). A batch that's both runs orange into
-     green. */
+  --ireland: #008000;
+  --ireland-ink: #ffffff;
+  --ireland-bg: #e6f3e6;
+  --ireland-foreground: #006400;
+  /* Solid fills for a flagged MES card or row, left to right like
+     --brand-gradient on the station banner: urgent built on #FF4D00 (dark
+     text), Ireland on #008000 (white text) — see .batch-flagged below. The
+     same in both themes. A batch that's both is the urgent fill with a solid
+     green bar down its left edge: a gradient from one into the other would
+     leave no text colour readable across the whole card. */
   --urgent-gradient: linear-gradient(90deg, #ff7a3d 0%, #ff4d00 55%, #f24700 100%);
-  --ireland-gradient: linear-gradient(90deg, #a3ff8a 0%, #39ff14 50%, #22c90d 100%);
-  --urgent-ireland-gradient: linear-gradient(90deg, #ff7a3d 0%, #ff4d00 38%, #39ff14 68%, #22c90d 100%);
+  --ireland-gradient: linear-gradient(90deg, #008000 0%, #007000 55%, #005c00 100%);
+  --urgent-ireland-gradient: linear-gradient(#008000, #008000) left top / 10px 100% no-repeat,
+    linear-gradient(90deg, #ff7a3d 0%, #ff4d00 55%, #f24700 100%);
 
   /* --- dense dashboard spacing scale ------------------------------------ */
   --space-1: 0.25rem;
@@ -165,10 +167,10 @@
   --urgent-ink: #2a0b00;
   --urgent-bg: #3a1505;
   --urgent-foreground: #ff8a57;
-  --ireland: #39ff14;
-  --ireland-ink: #062b00;
-  --ireland-bg: #0c2a0a;
-  --ireland-foreground: #7dff63;
+  --ireland: #008000;
+  --ireland-ink: #ffffff;
+  --ireland-bg: #0b2a0b;
+  --ireland-foreground: #5fd35f;
 
   --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4);
   --shadow-raised: 0 4px 14px rgb(0 0 0 / 0.5);
@@ -381,12 +383,33 @@ body {
   color: var(--foreground);
   border-color: transparent;
 }
+/* Ireland's #008000 is too dark for dark ink, so its text is white — like
+   the station banner. The frosted controls and notes keep their white fill,
+   so inside those the ink goes back to dark. */
 .batch-flagged--ireland {
+  --foreground: #ffffff;
+  --muted-foreground: rgb(255 255 255 / 0.88);
+  --subtle-foreground: rgb(255 255 255 / 0.76);
+  --border: rgb(255 255 255 / 0.28);
+  --border-strong: rgb(255 255 255 / 0.45);
+  --status-qa: #ffd9bf;
+  --warning: #ffd9bf;
+}
+.batch-flagged--ireland :is(
+    select,
+    input,
+    [role="note"],
+    [class*="bg-[var(--surface)]"],
+    [class*="bg-[var(--surface-sunken)]"],
+    [class*="bg-[var(--status-production-bg)]"]
+  ) {
   --foreground: #052400;
   --muted-foreground: rgb(5 36 0 / 0.84);
   --subtle-foreground: rgb(5 36 0 / 0.7);
   --border: rgb(5 36 0 / 0.2);
   --border-strong: rgb(5 36 0 / 0.32);
+  --status-qa: #7a2c0c;
+  --warning: #7a2c0c;
 }
 
 /* Faint brand-coloured wash behind the portal shell, echoing the molecule

@@ -141,7 +141,7 @@ at Check 1 and also accepted on `POST /api/batch-book`; invalid values are
 `422`. The form makes the destination required before confirming (no
 default, so a forgotten choice can't pass for UK); the API leaves it
 optional so older batches and scripts still work. Through the MES an urgent
-batch shows orange (#FF4D00) and an Ireland batch neon green at every station
+batch shows orange (#FF4D00) and an Ireland batch green (#008000) at every station
 (`src/components/mes/BatchFlags.tsx`), and urgent batches sort to the top. In
 particular the label counts (`labelsPrinted`, `labelsReprinted`) are
 **read-only here**: Check 2 records them through the MES

@@ -5,8 +5,8 @@ import { BATCH_DESTINATION_LABELS, type BatchRecord } from "@/lib/batchBook";
 /*
  * Flags set at Batch Book entry that follow a batch through every MES
  * station: an urgent batch's card or row is filled solid orange (#FF4D00), stock for
- * Ireland solid neon green — gradients in the style of the station banner.
- * A batch that's both runs orange into green. Colour is never the only
+ * Ireland solid green (#008000) — gradients in the style of the station banner.
+ * A batch that's both is orange with a green bar down its left edge. Colour is never the only
  * signal: every flagged batch also carries text badges.
  */
 
@@ -35,14 +35,14 @@ function gradient(batch: Flaggable): string | null {
 export function flaggedSurface(batch: Flaggable): { className: string; style?: CSSProperties } {
   const fill = gradient(batch);
   if (!fill) return { className: "" };
-  // Ireland-only gets green-tinted ink; anything urgent keeps the orange-brown ink.
+  // Ireland-only gets white ink on its green; anything urgent keeps dark ink.
   const ink = batch.urgent ? "" : " batch-flagged--ireland";
   return { className: `batch-flagged${ink}`, style: { background: fill } };
 }
 
 /**
- * The text badges: URGENT, and the destination. The two highlights are dark
- * pills lettered in their flag colour, so they read on a flagged card's
+ * The text badges: URGENT, and the destination. URGENT is a dark
+ * pill lettered orange and IRELAND a white-ringed green one, so both read on a flagged card's
  * bright fill and on a plain card or row alike; other markets are a quiet
  * outlined tag.
  */
@@ -63,7 +63,7 @@ export function BatchFlags({ batch, className = "" }: { batch: Flaggable; classN
         isIreland(batch) ? (
           <span
             className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide"
-            style={{ background: "#062b00", color: "#39ff14" }}
+            style={{ background: "var(--ireland)", color: "#ffffff", boxShadow: "inset 0 0 0 1px rgb(255 255 255 / 0.7)" }}
           >
             <GlobeHemisphereWest size={11} weight="fill" />
             Ireland

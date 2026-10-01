@@ -33,7 +33,7 @@ export interface BatchRecord {
   /** Flagged urgent at entry — amber at every MES station. */
   urgent: boolean;
   /** The market the stock is for; null on batches entered before this was
-   *  asked for. Ireland shows neon green through the MES. */
+   *  asked for. Ireland shows green (#008000) through the MES. */
   destination: BatchDestination | null;
   status: BatchBookStatus;
   currentStageId: string | null;
