@@ -11,7 +11,14 @@ import { db } from "../db/client";
 import { batchRecords, stageDefinitions, stageTransitions } from "../db/schema";
 import { diffFields, writeAuditEntries } from "./audit";
 import { assignNextBatchNumber, type BatchType } from "./numbering";
-import { canConfirmBatch, canCreateDraft, canEditBatch, canEditFields, type ActingStaff } from "./validation";
+import {
+  canConfirmBatch,
+  canCreateDraft,
+  canEditBatch,
+  canEditFields,
+  checkPriorityAndDestination,
+  type ActingStaff,
+} from "./validation";
 
 export type BatchRecordRow = typeof batchRecords.$inferSelect;
 
@@ -22,6 +29,8 @@ export interface CreateDraftInput {
   quantity?: string | null;
   unit?: string | null;
   plannedManufactureDate?: string | null;
+  urgent?: boolean;
+  destination?: BatchRecordRow["destination"];
   customFields?: Record<string, unknown>;
 }
 
@@ -42,6 +51,8 @@ export async function getBatch(id: string): Promise<BatchRecordRow> {
 export async function createDraft(input: CreateDraftInput, actingStaff: ActingStaff): Promise<BatchRecordRow> {
   const verdict = canCreateDraft(actingStaff);
   if (!verdict.ok) throw new ApiError(403, verdict.error);
+  const fields = checkPriorityAndDestination(input);
+  if (!fields.ok) throw new ApiError(422, fields.error);
 
   const [row] = await db
     .insert(batchRecords)
@@ -52,6 +63,8 @@ export async function createDraft(input: CreateDraftInput, actingStaff: ActingSt
       quantity: input.quantity ?? null,
       unit: input.unit ?? null,
       plannedManufactureDate: input.plannedManufactureDate ?? null,
+      urgent: input.urgent ?? false,
+      destination: input.destination ?? null,
       customFields: input.customFields ?? {},
       status: "DRAFT",
       createdBy: actingStaff.id,
@@ -65,7 +78,15 @@ export interface UpdateBatchInput {
   patch: Partial<
     Pick<
       BatchRecordRow,
-      "batchType" | "departmentId" | "productName" | "quantity" | "unit" | "plannedManufactureDate" | "customFields"
+      | "batchType"
+      | "departmentId"
+      | "productName"
+      | "quantity"
+      | "unit"
+      | "plannedManufactureDate"
+      | "urgent"
+      | "destination"
+      | "customFields"
     >
   >;
   /** Required by canEditBatch once the record is past DRAFT. */
@@ -87,6 +108,8 @@ export async function updateBatch(
     const patchKeys = Object.keys(input.patch);
     const fieldsAllowed = canEditFields(existing, patchKeys);
     if (!fieldsAllowed.ok) throw new ApiError(422, fieldsAllowed.error);
+    const values = checkPriorityAndDestination(input.patch);
+    if (!values.ok) throw new ApiError(422, values.error);
 
     const [updated] = await tx
       .update(batchRecords)

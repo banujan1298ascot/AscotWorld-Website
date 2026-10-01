@@ -30,6 +30,11 @@ export interface BatchRecord {
   quantity: string | null;
   unit: string | null;
   plannedManufactureDate: string | null;
+  /** Flagged urgent at entry — amber at every MES station. */
+  urgent: boolean;
+  /** The market the stock is for; null on batches entered before this was
+   *  asked for. Ireland shows neon green through the MES. */
+  destination: BatchDestination | null;
   status: BatchBookStatus;
   currentStageId: string | null;
   currentStageArrival: "FORWARD" | "RETURNED" | null;
@@ -59,11 +64,39 @@ export interface BatchDraftInput {
   quantity?: string;
   unit?: string;
   plannedManufactureDate?: string;
+  urgent?: boolean;
+  destination?: BatchDestination;
 }
 
 export type BatchPatch = Partial<
-  Pick<BatchRecord, "batchType" | "departmentId" | "productName" | "quantity" | "unit" | "plannedManufactureDate">
+  Pick<
+    BatchRecord,
+    | "batchType"
+    | "departmentId"
+    | "productName"
+    | "quantity"
+    | "unit"
+    | "plannedManufactureDate"
+    | "urgent"
+    | "destination"
+  >
 >;
+
+/** Mirrors batch_destination in src/server/db/schema/enums.ts. */
+export type BatchDestination = "UK" | "IRELAND" | "SPAIN" | "GERMANY" | "ABU_DHABI";
+
+/** In the order the Batch Book form lists them. */
+export const BATCH_DESTINATIONS: { value: BatchDestination; label: string }[] = [
+  { value: "UK", label: "UK" },
+  { value: "IRELAND", label: "Ireland" },
+  { value: "SPAIN", label: "Spain" },
+  { value: "GERMANY", label: "Germany" },
+  { value: "ABU_DHABI", label: "Abu Dhabi" },
+];
+
+export const BATCH_DESTINATION_LABELS = Object.fromEntries(
+  BATCH_DESTINATIONS.map((d) => [d.value, d.label]),
+) as Record<BatchDestination, string>;
 
 export function useDepartments(): { departments: DepartmentOption[]; ready: boolean; error: string | null } {
   const { user } = useAuth();

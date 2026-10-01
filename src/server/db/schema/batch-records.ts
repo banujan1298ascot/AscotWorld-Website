@@ -11,7 +11,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { batchStatusEnum, batchTypeEnum, stageArrivalEnum } from "./enums";
+import { batchDestinationEnum, batchStatusEnum, batchTypeEnum, stageArrivalEnum } from "./enums";
 import { departments } from "./departments";
 import { stageDefinitions } from "./stage-definitions";
 import { staff } from "./staff";
@@ -42,6 +42,12 @@ export const batchRecords = pgTable(
     quantity: numeric("quantity"),
     unit: text("unit"),
     plannedManufactureDate: date("planned_manufacture_date"),
+
+    /** Flagged urgent at Batch Book entry — shown amber at every MES station. */
+    urgent: boolean("urgent").notNull().default(false),
+    /** The market the stock is for. Null on batches entered before this was
+     *  asked for; the Batch Book form requires it for new ones. */
+    destination: batchDestinationEnum("destination"),
 
     status: batchStatusEnum("status").notNull().default("DRAFT"),
     /** Null until confirmed, and again once the batch leaves the pipeline

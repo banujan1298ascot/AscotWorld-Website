@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CheckCircle, PencilSimple, Plus } from "@phosphor-icons/react/dist/ssr";
+import { CheckCircle, PencilSimple, Plus, Warning } from "@phosphor-icons/react/dist/ssr";
+import { BatchFlags } from "@/components/mes/BatchFlags";
 import {
   Button,
   Card,
@@ -20,10 +21,12 @@ import {
 import { useAuth } from "@/lib/auth";
 import {
   BATCH_BOOK_STATUS_LABELS,
+  BATCH_DESTINATIONS,
   BATCH_TYPE_LABELS,
   useBatchBook,
   useDepartments,
   type BatchBookStatus,
+  type BatchDestination,
   type BatchPatch,
   type BatchRecord,
   type BatchType,
@@ -154,7 +157,10 @@ export default function BatchBookPage() {
                       <td className="px-4 py-2.5 font-mono text-[13px] font-semibold">
                         {batch.batchNumber ?? <span className="text-[var(--muted-foreground)]">Not yet assigned</span>}
                       </td>
-                      <td className="px-4 py-2.5">{batch.productName ?? "—"}</td>
+                      <td className="px-4 py-2.5">
+                        {batch.productName ?? "—"}
+                        <BatchFlags batch={batch} className="mt-1 flex" />
+                      </td>
                       <td className="px-4 py-2.5">{departmentById.get(batch.departmentId) ?? "—"}</td>
                       <td className="px-4 py-2.5">
                         <StatusPill
@@ -229,6 +235,97 @@ export default function BatchBookPage() {
 /* -------------------------------------------------------------------------- */
 
 /**
+ * Priority and destination, entered with the batch and carried through every
+ * MES station: urgent shows amber, stock for Ireland neon green (see
+ * src/components/mes/BatchFlags.tsx). Priority is only ever "urgent" or left
+ * alone. The destination has no default — a wrong pre-filled market would
+ * look exactly like a right one — so it must be picked before confirming.
+ */
+function PriorityAndDestinationFields({
+  idPrefix,
+  urgent,
+  onUrgentChange,
+  destination,
+  onDestinationChange,
+}: {
+  idPrefix: string;
+  urgent: boolean;
+  onUrgentChange: (urgent: boolean) => void;
+  destination: BatchDestination | null;
+  onDestinationChange: (destination: BatchDestination) => void;
+}) {
+  return (
+    <>
+      <Field label="Priority" htmlFor={`${idPrefix}-urgent`}>
+        <label
+          htmlFor={`${idPrefix}-urgent`}
+          className="flex cursor-pointer items-center gap-2.5 rounded-md border px-3 py-2.5 transition-colors duration-150"
+          style={
+            urgent
+              ? { borderColor: "var(--urgent)", background: "var(--urgent-bg)" }
+              : { borderColor: "var(--border-strong)" }
+          }
+        >
+          <input
+            id={`${idPrefix}-urgent`}
+            type="checkbox"
+            checked={urgent}
+            onChange={(e) => onUrgentChange(e.target.checked)}
+            className="h-4 w-4 cursor-pointer accent-[var(--urgent)]"
+          />
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+              <Warning size={15} weight={urgent ? "fill" : "bold"} style={{ color: urgent ? "var(--urgent)" : undefined }} />
+              Urgent
+            </span>
+            <span className="block text-xs text-[var(--muted-foreground)]">
+              Leave unticked for normal priority. Urgent batches show amber at every MES station.
+            </span>
+          </span>
+        </label>
+      </Field>
+
+      <Field
+        label="Destination"
+        htmlFor={`${idPrefix}-destination`}
+        required
+        helper={destination ? undefined : "Choose where the stock is going before confirming."}
+      >
+        <div id={`${idPrefix}-destination`} role="radiogroup" aria-label="Destination" className="flex flex-wrap gap-1.5">
+          {BATCH_DESTINATIONS.map((option) => {
+            const selected = destination === option.value;
+            const ireland = option.value === "IRELAND";
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => onDestinationChange(option.value)}
+                className={`cursor-pointer rounded-md border px-3 py-1.5 text-[13px] font-semibold transition-colors duration-150 ${
+                  selected
+                    ? ireland
+                      ? ""
+                      : "border-[var(--primary)] bg-[var(--primary)] text-white"
+                    : "border-[var(--border-strong)] text-[var(--muted-foreground)] hover:text-foreground"
+                }`}
+                style={
+                  selected && ireland
+                    ? { borderColor: "var(--ireland)", background: "var(--ireland)", color: "var(--ireland-ink)" }
+                    : undefined
+                }
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      </Field>
+    </>
+  );
+}
+
+/**
  * Entering a batch and confirming it are one step: confirming is what
  * assigns the permanent number, so it belongs with the data being entered
  * rather than as an action against a row in the log. "Save as draft" is
@@ -251,6 +348,8 @@ function CreateBatchModal({
       quantity?: string;
       unit?: string;
       plannedManufactureDate?: string;
+      urgent?: boolean;
+      destination?: BatchDestination;
     },
     confirmNow: boolean,
   ) => Promise<void>;
@@ -262,6 +361,8 @@ function CreateBatchModal({
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("");
   const [plannedDate, setPlannedDate] = useState("");
+  const [urgent, setUrgent] = useState(false);
+  const [destination, setDestination] = useState<BatchDestination | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const error = submitError ?? departmentsError;
@@ -280,6 +381,8 @@ function CreateBatchModal({
           quantity: quantity || undefined,
           unit: unit || undefined,
           plannedManufactureDate: plannedDate || undefined,
+          urgent,
+          destination: destination ?? undefined,
         },
         confirmNow,
       );
@@ -307,7 +410,7 @@ function CreateBatchModal({
           <Button
             variant="primary"
             icon={<CheckCircle size={15} weight="bold" />}
-            disabled={!selectedDepartment || submitting}
+            disabled={!selectedDepartment || !destination || submitting}
             onClick={() => void submit(true)}
           >
             {submitting ? "Working…" : "Confirm batch"}
@@ -355,6 +458,14 @@ function CreateBatchModal({
         <Field label="Planned manufacture date" htmlFor="planned-date">
           <Input id="planned-date" type="date" value={plannedDate} onChange={(e) => setPlannedDate(e.target.value)} />
         </Field>
+
+        <PriorityAndDestinationFields
+          idPrefix="new"
+          urgent={urgent}
+          onUrgentChange={setUrgent}
+          destination={destination}
+          onDestinationChange={setDestination}
+        />
       </div>
     </Modal>
   );
@@ -378,6 +489,8 @@ function EditBatchModal({
   const [quantity, setQuantity] = useState(batch.quantity ?? "");
   const [unit, setUnit] = useState(batch.unit ?? "");
   const [plannedDate, setPlannedDate] = useState(batch.plannedManufactureDate ?? "");
+  const [urgent, setUrgent] = useState(batch.urgent);
+  const [destination, setDestination] = useState<BatchDestination | null>(batch.destination);
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -387,6 +500,8 @@ function EditBatchModal({
     quantity: quantity || null,
     unit: unit || null,
     plannedManufactureDate: plannedDate || null,
+    urgent,
+    destination,
   });
 
   async function run(action: () => Promise<void>) {
@@ -426,7 +541,7 @@ function EditBatchModal({
             <Button
               variant="primary"
               icon={<CheckCircle size={15} weight="bold" />}
-              disabled={submitting}
+              disabled={submitting || !destination}
               onClick={() => void run(() => onConfirm(currentPatch()))}
             >
               {submitting ? "Working…" : "Confirm batch"}
@@ -464,6 +579,14 @@ function EditBatchModal({
             onChange={(e) => setPlannedDate(e.target.value)}
           />
         </Field>
+
+        <PriorityAndDestinationFields
+          idPrefix="edit"
+          urgent={urgent}
+          onUrgentChange={setUrgent}
+          destination={destination}
+          onDestinationChange={setDestination}
+        />
 
         {!isDraft ? (
           <div className="rounded-md border border-[var(--border)] bg-[var(--surface-sunken)] px-3 py-2.5">

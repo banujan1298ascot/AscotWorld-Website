@@ -31,6 +31,7 @@ import { Avatar, Button, Card, EmptyState, ErrorNotice, Field, Modal, PageHeader
 import { useAuth } from "@/lib/auth";
 import { BATCH_BOOK_STATUS_LABELS, useDepartments, type BatchRecord } from "@/lib/batchBook";
 import { canRecordLabels, LABEL_STATION_SEQUENCE, useStageQueue, useStages, type InProgressEntry } from "@/lib/mes";
+import { BatchFlags, flaggedCardStyle, urgentFirst } from "@/components/mes/BatchFlags";
 import { LabelsButton, LabelsModal } from "@/components/mes/LabelsModal";
 import { StationCounters } from "@/components/mes/StationCounters";
 import { useStageArrivalAlerts } from "@/lib/mesAlerts";
@@ -385,7 +386,7 @@ export function MesBoard({ viewSwitch }: { viewSwitch: ReactNode }) {
                 {/* Waiting to be picked up — fresh arrivals and anything the
                     next stage sent back, which are the same job from here. */}
                 <BoardColumn title="Incoming" count={queue.incoming.length + queue.returned.length}>
-                  {[...queue.incoming, ...queue.returned].map((batch) => (
+                  {urgentFirst([...queue.incoming, ...queue.returned], (b) => b).map((batch) => (
                     <DraggableBatchCard
                       key={batch.id}
                       batch={batch}
@@ -423,7 +424,7 @@ export function MesBoard({ viewSwitch }: { viewSwitch: ReactNode }) {
                 </BoardColumn>
 
                 <DroppableColumn id="zone-claim" title="In progress" count={queue.inProgress.length}>
-                  {queue.inProgress.map((entry) => (
+                  {urgentFirst(queue.inProgress, (e) => e.batch).map((entry) => (
                     <InProgressCard
                       key={entry.batch.id}
                       entry={entry}
@@ -476,7 +477,10 @@ export function MesBoard({ viewSwitch }: { viewSwitch: ReactNode }) {
                 : createPortal(
                     <DragOverlay dropAnimation={DROP_ANIMATION}>
                       {draggingBatch ? (
-                        <Card className="rotate-2 cursor-grabbing border-[var(--primary)] shadow-[var(--shadow-overlay)]">
+                        <Card
+                          className="rotate-2 cursor-grabbing border-[var(--primary)] shadow-[var(--shadow-overlay)]"
+                          style={flaggedCardStyle(draggingBatch)}
+                        >
                           <BatchCardBody batch={draggingBatch} />
                         </Card>
                       ) : null}
@@ -1051,6 +1055,7 @@ function DraggableBatchCard({
       ref={setNodeRef}
       {...listeners}
       {...attributes}
+      style={flaggedCardStyle(batch)}
       className={`cursor-grab touch-none select-none transition-[transform,opacity,border-color] duration-150 active:cursor-grabbing ${
         // Left behind as a placeholder while the overlay copy is dragged.
         isDragging ? "opacity-40 border-dashed" : ""
@@ -1096,6 +1101,7 @@ function InProgressCard({
       ref={setNodeRef}
       {...(isMine ? listeners : {})}
       {...(isMine ? attributes : {})}
+      style={flaggedCardStyle(entry.batch)}
       className={`transition-[transform,opacity,border-color] duration-150 ${
         canAct ? "cursor-grab touch-none active:cursor-grabbing" : ""
       } ${isDragging ? "opacity-40 border-dashed" : ""} ${holding ? "scale-[0.98] border-[var(--primary)]" : ""}`}
@@ -1140,6 +1146,7 @@ function BatchCardBody({ batch, newBadge }: { batch: BatchRecord; newBadge?: boo
           />
         </div>
       </div>
+      <BatchFlags batch={batch} className="mt-1" />
       <p className="mt-1 text-sm text-foreground">{batch.productName ?? "Unnamed product"}</p>
       {batch.quantity ? (
         <p className="text-xs text-[var(--muted-foreground)]">

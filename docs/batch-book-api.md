@@ -132,7 +132,17 @@ Body:
 ### `PATCH /api/batch-book/:id`
 Edits a batch. Only the Batch Book's own fields can ever be patched —
 `batchType`, `departmentId`, `productName`, `quantity`, `unit`,
-`plannedManufactureDate`, `customFields`; anything else is `422`. In
+`plannedManufactureDate`, `urgent`, `destination`, `customFields`; anything
+else is `422`.
+
+`urgent` (boolean, default false) and `destination` (`UK` | `IRELAND` |
+`SPAIN` | `GERMANY` | `ABU_DHABI`, null until set) are entered with the batch
+at Check 1 and also accepted on `POST /api/batch-book`; invalid values are
+`422`. The form makes the destination required before confirming (no
+default, so a forgotten choice can't pass for UK); the API leaves it
+optional so older batches and scripts still work. Through the MES an urgent
+batch shows amber and an Ireland batch neon green at every station
+(`src/components/mes/BatchFlags.tsx`), and urgent batches sort to the top. In
 particular the label counts (`labelsPrinted`, `labelsReprinted`) are
 **read-only here**: Check 2 records them through the MES
 (`POST /api/mes/batches/:batchId/labels`, see docs/mes-api.md), and no Batch

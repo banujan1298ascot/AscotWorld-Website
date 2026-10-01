@@ -74,6 +74,19 @@
   --line-tablets: #a21caf;
   --line-tablets-bg: #fbe7fa;
 
+  /* --- batch flags set at Batch Book entry ---------------------------------
+     Carried on the batch through every MES station. `--x` is the stripe and
+     badge fill, `--x-ink` the text on that fill, `--x-bg` / `--x-foreground`
+     the tinted card or row and its text. Always paired with a text badge. */
+  --urgent: #f59e0b;
+  --urgent-ink: #3b2500;
+  --urgent-bg: #fff6e0;
+  --urgent-foreground: #92400e;
+  --ireland: #39ff14;
+  --ireland-ink: #062b00;
+  --ireland-bg: #edffe8;
+  --ireland-foreground: #1a6b0c;
+
   /* --- dense dashboard spacing scale ------------------------------------ */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -139,6 +152,15 @@
   --line-capsules-bg: #241a3d;
   --line-tablets: #e879f9;
   --line-tablets-bg: #3a1638;
+
+  --urgent: #fbbf24;
+  --urgent-ink: #2b1b00;
+  --urgent-bg: #33250a;
+  --urgent-foreground: #fcd34d;
+  --ireland: #39ff14;
+  --ireland-ink: #062b00;
+  --ireland-bg: #0c2a0a;
+  --ireland-foreground: #7dff63;
 
   --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4);
   --shadow-raised: 0 4px 14px rgb(0 0 0 / 0.5);

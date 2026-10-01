@@ -19,6 +19,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { useDepartments, type BatchRecord } from "@/lib/batchBook";
 import { canRecordLabels, LABEL_STATION_SEQUENCE, useAllStageQueues, useStages, type StageDefinition } from "@/lib/mes";
+import { BatchFlags, flaggedFirstCellStyle, flaggedRowStyle } from "@/components/mes/BatchFlags";
 import { LabelsButton, LabelsModal } from "@/components/mes/LabelsModal";
 import { StationCounters } from "@/components/mes/StationCounters";
 import { staffCollection } from "@/lib/seed";
@@ -114,6 +115,8 @@ export function MesTable({ viewSwitch }: { viewSwitch: ReactNode }) {
     return out.sort(
       (a, b) =>
         STATE_META[a.state].order - STATE_META[b.state].order ||
+        // Urgent batches to the top of their group.
+        Number(b.batch.urgent) - Number(a.batch.urgent) ||
         a.stage.sequenceNumber - b.stage.sequenceNumber ||
         a.since.localeCompare(b.since),
     );
@@ -455,8 +458,12 @@ function TableRow({
       className={`border-b border-[var(--border)] transition-colors last:border-0 ${
         pending ? "bg-[var(--brand-50)]" : "hover:bg-[var(--surface-sunken)]"
       }`}
+      style={pending ? undefined : flaggedRowStyle(batch)}
     >
-      <td className="px-4 py-2 font-mono text-[13px] font-semibold">{label(batch)}</td>
+      <td className="px-4 py-2" style={flaggedFirstCellStyle(batch)}>
+        <span className="block font-mono text-[13px] font-semibold">{label(batch)}</span>
+        <BatchFlags batch={batch} className="mt-1" />
+      </td>
       <td className="px-4 py-2">{batch.productName ?? "—"}</td>
       <td className="px-4 py-2 tabular-nums text-[var(--muted-foreground)]">
         {batch.quantity ? `${Number(batch.quantity).toLocaleString()} ${batch.unit ?? ""}` : "—"}

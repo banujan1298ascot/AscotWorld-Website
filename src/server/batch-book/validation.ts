@@ -82,8 +82,30 @@ const BATCH_BOOK_FIELDS = new Set([
   "quantity",
   "unit",
   "plannedManufactureDate",
+  "urgent",
+  "destination",
   "customFields",
 ]);
+
+/** Mirrors batch_destination in src/server/db/schema/enums.ts. */
+export const BATCH_DESTINATIONS = ["UK", "IRELAND", "SPAIN", "GERMANY", "ABU_DHABI"] as const;
+
+/** Are the priority and destination fields, where given, values the record
+ *  can hold? Both are optional on input — absent means "leave as is" (or the
+ *  default: not urgent, destination not yet set). */
+export function checkPriorityAndDestination(fields: { urgent?: unknown; destination?: unknown }): Verdict {
+  if (fields.urgent !== undefined && typeof fields.urgent !== "boolean") {
+    return { ok: false, error: "urgent must be true or false." };
+  }
+  if (
+    fields.destination !== undefined &&
+    fields.destination !== null &&
+    !BATCH_DESTINATIONS.includes(fields.destination as (typeof BATCH_DESTINATIONS)[number])
+  ) {
+    return { ok: false, error: `destination must be one of ${BATCH_DESTINATIONS.join(", ")}.` };
+  }
+  return { ok: true };
+}
 
 const LABEL_FIELDS = new Set(["labelsPrinted", "labelsReprinted"]);
 

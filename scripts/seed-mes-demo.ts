@@ -135,8 +135,18 @@ const PRODUCTS: Array<Omit<CreateDraftInput, "departmentId">> = [
   { batchType: "A", productName: "Mebeverine 135mg Tablets", quantity: "7500", unit: "tablets" },
   { batchType: "B", productName: "Ranitidine 75mg/5ml Oral Solution", quantity: "650", unit: "bottles" },
 ];
+/** Mostly UK, with every other market represented, and roughly one batch in
+ *  six urgent — so the board shows the amber and Ireland highlights. */
+const DESTINATIONS = ["UK", "UK", "IRELAND", "UK", "SPAIN", "UK", "GERMANY", "IRELAND", "UK", "ABU_DHABI"] as const;
 let productIndex = 0;
-const nextProduct = () => PRODUCTS[productIndex++ % PRODUCTS.length];
+const nextProduct = () => {
+  const i = productIndex++;
+  return {
+    ...PRODUCTS[i % PRODUCTS.length],
+    destination: DESTINATIONS[i % DESTINATIONS.length],
+    urgent: i % 6 === 1,
+  };
+};
 
 const REWORK_REASONS: Record<number, string> = {
   3: "Calculation sheet doesn't match the batch card quantity — recheck the scale-up.",

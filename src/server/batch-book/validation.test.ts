@@ -1,5 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { canConfirmBatch, canCreateDraft, canEditBatch, canEditFields } from "./validation";
+import {
+  canConfirmBatch,
+  canCreateDraft,
+  canEditBatch,
+  canEditFields,
+  checkPriorityAndDestination,
+} from "./validation";
+
+describe("checkPriorityAndDestination", () => {
+  it("accepts the five destinations, a cleared one, or nothing at all", () => {
+    for (const destination of ["UK", "IRELAND", "SPAIN", "GERMANY", "ABU_DHABI", null, undefined]) {
+      expect(checkPriorityAndDestination({ destination }).ok).toBe(true);
+    }
+  });
+
+  it("refuses an unknown destination", () => {
+    expect(checkPriorityAndDestination({ destination: "FRANCE" }).ok).toBe(false);
+    expect(checkPriorityAndDestination({ destination: "ireland" }).ok).toBe(false);
+  });
+
+  it("needs urgent to be a real true/false", () => {
+    expect(checkPriorityAndDestination({ urgent: true }).ok).toBe(true);
+    expect(checkPriorityAndDestination({ urgent: false }).ok).toBe(true);
+    expect(checkPriorityAndDestination({ urgent: "yes" }).ok).toBe(false);
+  });
+});
 
 const draftByProd1 = { status: "DRAFT" as const, createdBy: "staff_prod_1" };
 const confirmedByProd1 = { status: "CONFIRMED" as const, createdBy: "staff_prod_1" };
@@ -76,6 +101,10 @@ describe("canEditFields", () => {
       expect(canEditFields(batch, ["labelsPrinted"]).ok).toBe(false);
       expect(canEditFields(batch, ["quantity", "labelsReprinted"]).ok).toBe(false);
     }
+  });
+
+  it("lets priority and destination be edited, with a reason once confirmed", () => {
+    expect(canEditFields(confirmedByProd1, ["urgent", "destination"]).ok).toBe(true);
   });
 
   it("refuses fields the Batch Book doesn't own, even on a draft", () => {

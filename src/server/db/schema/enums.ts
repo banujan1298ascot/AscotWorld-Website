@@ -48,4 +48,8 @@ export const stageArrivalEnum = pgEnum("stage_arrival", ["FORWARD", "RETURNED"])
  * A label print run recorded at Check 2 (Order/Calculation Check): the batch's
  * first print, or a later reprint/rerun. See label_print_runs.
  */
+/** Which market a batch's stock is for — chosen at Batch Book entry. Mirrors
+ *  BATCH_DESTINATIONS in src/lib/batchBook.ts. */
+export const batchDestinationEnum = pgEnum("batch_destination", ["UK", "IRELAND", "SPAIN", "GERMANY", "ABU_DHABI"]);
+
 export const labelPrintKindEnum = pgEnum("label_print_kind", ["FIRST_PRINT", "REPRINT"]);

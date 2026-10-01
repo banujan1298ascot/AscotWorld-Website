@@ -14,6 +14,8 @@ function makeBatch(id: string): BatchRecord {
     quantity: "100",
     unit: "bottles",
     plannedManufactureDate: null,
+    urgent: false,
+    destination: null,
     status: "IN_PROGRESS",
     currentStageId: "stage_2",
     currentStageArrival: "FORWARD",
