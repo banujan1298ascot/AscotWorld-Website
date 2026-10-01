@@ -83,7 +83,7 @@ const ENABLED_KEY = "ascotworld:mes-sound-enabled";
  * rather than a preference. Defaults to on.
  *
  * Reads localStorage in the lazy useState initializer rather than an
- * effect: this hook is only ever rendered from src/app/(portal)/mes/page.tsx,
+ * effect: this hook is only ever rendered from src/components/mes/MesBoard.tsx,
  * which sits behind the portal shell's own `ready` gate (auth.tsx) — nothing
  * here reaches the DOM until after that client-only hydration point, so
  * there's no server/client markup mismatch to worry about.

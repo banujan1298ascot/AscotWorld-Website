@@ -1,5 +1,67 @@
 import { describe, expect, it } from "vitest";
-import { canActOnTransition, canClaim, canFail, canForward, canRunStation, canSendBack, checkAssignee, checkOperatorRole } from "./validation";
+import {
+  canActOnTransition,
+  canClaim,
+  canFail,
+  canForward,
+  canRecordLabels,
+  canRunStation,
+  canSendBack,
+  checkAssignee,
+  checkLabelRun,
+  checkOperatorRole,
+} from "./validation";
+
+describe("canRecordLabels", () => {
+  const check2 = { sequenceNumber: 2, name: "Order/Calculation Check", operatorRole: "order_processing" };
+
+  it("lets Station 2's own account record", () => {
+    expect(canRecordLabels({ id: "s2", role: "production", mesStage: 2 }, check2).ok).toBe(true);
+  });
+
+  it("refuses Station 1 and every other station account", () => {
+    for (const mesStage of [1, 3, 4, 5]) {
+      expect(canRecordLabels({ id: "s", role: "production", mesStage }, check2).ok).toBe(false);
+    }
+  });
+
+  it("lets an unpinned Order processing operator record, but not other operators", () => {
+    expect(
+      canRecordLabels({ id: "op", role: "production", mesStage: null, operatorRole: "order_processing" }, check2).ok,
+    ).toBe(true);
+    expect(
+      canRecordLabels({ id: "op", role: "production", mesStage: null, operatorRole: "dispensary" }, check2).ok,
+    ).toBe(false);
+  });
+
+  it("refuses a viewer, and anything recorded away from Check 2", () => {
+    expect(canRecordLabels({ id: "v", role: "viewer", operatorRole: "order_processing" }, check2).ok).toBe(false);
+    expect(
+      canRecordLabels({ id: "a", role: "admin" }, { sequenceNumber: 3, name: "Dispensary", operatorRole: null }).ok,
+    ).toBe(false);
+  });
+});
+
+describe("checkLabelRun", () => {
+  it("needs a whole number above zero", () => {
+    for (const quantity of [0, -5, 2.5, "500", null]) {
+      expect(checkLabelRun({ kind: "FIRST_PRINT", quantity }, { labelsPrinted: null }).ok).toBe(false);
+    }
+    expect(checkLabelRun({ kind: "FIRST_PRINT", quantity: 500 }, { labelsPrinted: null }).ok).toBe(true);
+  });
+
+  it("needs a first print before any reprint", () => {
+    expect(checkLabelRun({ kind: "REPRINT", quantity: 20 }, { labelsPrinted: null }).ok).toBe(false);
+    expect(checkLabelRun({ kind: "REPRINT", quantity: 20 }, { labelsPrinted: 500 }).ok).toBe(true);
+  });
+
+  it("needs a reason to correct a first print already recorded", () => {
+    expect(checkLabelRun({ kind: "FIRST_PRINT", quantity: 480 }, { labelsPrinted: 500 }).ok).toBe(false);
+    expect(
+      checkLabelRun({ kind: "FIRST_PRINT", quantity: 480, reason: "Miscounted" }, { labelsPrinted: 500 }).ok,
+    ).toBe(true);
+  });
+});
 
 const prodStaff = { id: "staff_prod_1", role: "production" as const };
 const otherProdStaff = { id: "staff_prod_2", role: "production" as const };

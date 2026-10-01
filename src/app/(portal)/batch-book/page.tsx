@@ -46,6 +46,25 @@ const STATUS_TONE: Record<BatchBookStatus, { color: string; background: string }
   FAILED: { color: "var(--status-cancelled)", background: "var(--status-cancelled-bg)" },
 };
 
+/** Labels printed at Check 2, first print and reprints kept apart. Read-only
+ *  here: only Check 2 records them, through the MES. */
+function LabelCounts({ batch }: { batch: BatchRecord }) {
+  if (batch.labelsPrinted === null) {
+    return <span className="text-xs text-[var(--subtle-foreground)]">Not yet printed</span>;
+  }
+  return (
+    <span className="text-[13px] tabular-nums leading-tight">
+      <span className="font-semibold">{batch.labelsPrinted.toLocaleString()}</span>{" "}
+      <span className="text-[var(--muted-foreground)]">first print</span>
+      {batch.labelsReprinted > 0 ? (
+        <span className="block text-xs text-[var(--muted-foreground)]">
+          + <span className="font-semibold text-foreground">{batch.labelsReprinted.toLocaleString()}</span> reprinted
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 export default function BatchBookPage() {
   const { user, can } = useAuth();
   const [batchType, setBatchType] = useState<BatchType>("A");
@@ -113,13 +132,14 @@ export default function BatchBookPage() {
       ) : (
         <Card padded={false} className="overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
+            <table className="w-full min-w-[840px] text-sm">
               <thead>
                 <tr className="border-b border-[var(--border)] text-left text-xs font-bold uppercase tracking-wide text-[var(--muted-foreground)]">
                   <th className="px-4 py-2.5">Batch number</th>
                   <th className="px-4 py-2.5">Product</th>
                   <th className="px-4 py-2.5">Department</th>
                   <th className="px-4 py-2.5">Status</th>
+                  <th className="px-4 py-2.5">Labels</th>
                   <th className="px-4 py-2.5" />
                 </tr>
               </thead>
@@ -142,6 +162,9 @@ export default function BatchBookPage() {
                           {...STATUS_TONE[batch.status]}
                           size="sm"
                         />
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <LabelCounts batch={batch} />
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="flex justify-end gap-1.5">
@@ -441,6 +464,18 @@ function EditBatchModal({
             onChange={(e) => setPlannedDate(e.target.value)}
           />
         </Field>
+
+        {!isDraft ? (
+          <div className="rounded-md border border-[var(--border)] bg-[var(--surface-sunken)] px-3 py-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-[var(--muted-foreground)]">Labels</p>
+              <LabelCounts batch={batch} />
+            </div>
+            <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
+              Recorded by Check 2 in the MES — it can&apos;t be changed from the Batch Book.
+            </p>
+          </div>
+        ) : null}
 
         {!isDraft ? (
           <Field

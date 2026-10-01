@@ -106,7 +106,7 @@ interface CardProps extends HTMLAttributes<HTMLDivElement> {
 
 /** Forwards ref and every other div prop (style, listeners, aria-*, ...) so
  *  it can also serve as a dnd-kit draggable/droppable surface — see the MES
- *  pipeline board (src/app/(portal)/mes/page.tsx) for that usage. */
+ *  pipeline board (src/components/mes/MesBoard.tsx) for that usage. */
 export const Card = forwardRef<HTMLDivElement, CardProps>(function Card(
   { children, className = "", padded = true, interactive = false, ...rest },
   ref,

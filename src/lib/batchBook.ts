@@ -35,6 +35,11 @@ export interface BatchRecord {
   currentStageArrival: "FORWARD" | "RETURNED" | null;
   isHistoricalImport: boolean;
   customFields: Record<string, unknown>;
+  /** Labels from the first print at Check 2 (null until recorded), and the
+   *  total reprinted/rerun since. Recorded in the MES only — see
+   *  src/lib/mes.ts's useLabelRecord. */
+  labelsPrinted: number | null;
+  labelsReprinted: number;
   createdBy: string;
   confirmedBy: string | null;
   confirmedAt: string | null;

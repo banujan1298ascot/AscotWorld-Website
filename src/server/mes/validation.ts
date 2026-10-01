@@ -135,6 +135,69 @@ export function checkAssignee(
   return { ok: true };
 }
 
+/** The station that prints a batch's labels — Check 2, Order/Calculation Check. */
+export const LABEL_STATION_SEQUENCE = 2;
+
+/** Upper bound on one print run, to catch a slipped finger (an extra zero or
+ *  three) rather than to model any real limit. */
+export const MAX_LABELS_PER_RUN = 100_000;
+
+/**
+ * Who may record labels printed for a batch: only Check 2, which prints them
+ * — the account pinned there, an Order processing operator working the MES
+ * unpinned, or an admin correcting a record. Every other station account is
+ * refused outright, Check 1 (Batch Book entry) included: the Batch Book shows
+ * these counts but never takes them as input.
+ */
+export function canRecordLabels(
+  staff: ActingStaff & { operatorRole?: string | null },
+  stage: { sequenceNumber: number; name: string; operatorRole: string | null },
+): Verdict {
+  if (stage.sequenceNumber !== LABEL_STATION_SEQUENCE) {
+    return { ok: false, error: `Labels are recorded at Check ${LABEL_STATION_SEQUENCE} only.` };
+  }
+  if (staff.role === "admin" || staff.mesStage === LABEL_STATION_SEQUENCE) return { ok: true };
+  if (staff.mesStage != null) {
+    return {
+      ok: false,
+      error: `Only Station ${LABEL_STATION_SEQUENCE} can record labels — this account is Station ${staff.mesStage}'s.`,
+    };
+  }
+  if (!roleCan(staff.role, "mes.claim")) {
+    return { ok: false, error: "Your role cannot record labels." };
+  }
+  if (stage.operatorRole && staff.operatorRole !== stage.operatorRole) {
+    const needed = OPERATOR_ROLES[stage.operatorRole as OperatorRole];
+    return { ok: false, error: `Only ${needed ? needed.plural : "this station's operators"} can record labels at ${stage.name}.` };
+  }
+  return { ok: true };
+}
+
+/**
+ * Is this print run well-formed? A reprint needs a first print to follow,
+ * and correcting a first print that's already recorded needs a reason — the
+ * old figure stays in the history, so the record says why it changed.
+ */
+export function checkLabelRun(
+  run: { kind: "FIRST_PRINT" | "REPRINT"; quantity: unknown; reason?: string | null },
+  current: { labelsPrinted: number | null },
+): Verdict {
+  const { quantity } = run;
+  if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity < 1) {
+    return { ok: false, error: "Enter how many labels as a whole number above zero." };
+  }
+  if (quantity > MAX_LABELS_PER_RUN) {
+    return { ok: false, error: `That's more than ${MAX_LABELS_PER_RUN.toLocaleString("en-GB")} labels in one run — check the number.` };
+  }
+  if (run.kind === "REPRINT" && current.labelsPrinted === null) {
+    return { ok: false, error: "Record the first print before any reprint." };
+  }
+  if (run.kind === "FIRST_PRINT" && current.labelsPrinted !== null && !run.reason?.trim()) {
+    return { ok: false, error: "Give a reason for correcting the first print." };
+  }
+  return { ok: true };
+}
+
 /**
  * Some stations only take one kind of operator (stage_definitions.operator_role):
  * Order processing operators at Check 2, Dispensary technicians at Check 3,

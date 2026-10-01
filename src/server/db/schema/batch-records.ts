@@ -62,6 +62,12 @@ export const batchRecords = pgTable(
      *  don't warrant their own column yet. */
     customFields: jsonb("custom_fields").notNull().default(sql`'{}'::jsonb`),
 
+    /** Labels printed at Check 2 on the first run (null until recorded), and
+     *  the total reprinted/rerun since. Totals of label_print_runs, written
+     *  only by the MES label service — a Batch Book edit can't touch them. */
+    labelsPrinted: integer("labels_printed"),
+    labelsReprinted: integer("labels_reprinted").notNull().default(0),
+
     createdBy: text("created_by")
       .notNull()
       .references(() => staff.id, { onDelete: "restrict" }),

@@ -19,6 +19,8 @@ function makeBatch(id: string): BatchRecord {
     currentStageArrival: "FORWARD",
     isHistoricalImport: false,
     customFields: {},
+    labelsPrinted: null,
+    labelsReprinted: 0,
     createdBy: "staff_1",
     confirmedBy: "staff_1",
     confirmedAt: null,

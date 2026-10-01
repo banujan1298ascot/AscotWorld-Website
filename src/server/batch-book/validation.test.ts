@@ -70,6 +70,21 @@ describe("canEditFields", () => {
   it("allows descriptive fields once confirmed", () => {
     expect(canEditFields(confirmedByProd1, ["productName", "quantity", "plannedManufactureDate"]).ok).toBe(true);
   });
+
+  it("never lets the Batch Book write the label counts Check 2 records", () => {
+    for (const batch of [draftByProd1, confirmedByProd1]) {
+      expect(canEditFields(batch, ["labelsPrinted"]).ok).toBe(false);
+      expect(canEditFields(batch, ["quantity", "labelsReprinted"]).ok).toBe(false);
+    }
+  });
+
+  it("refuses fields the Batch Book doesn't own, even on a draft", () => {
+    expect(canEditFields(draftByProd1, ["status"])).toEqual({
+      ok: false,
+      error: "These fields can't be edited from the Batch Book: status.",
+    });
+    expect(canEditFields(draftByProd1, ["currentStageId"]).ok).toBe(false);
+  });
 });
 
 describe("canConfirmBatch", () => {

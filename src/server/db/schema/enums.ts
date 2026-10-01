@@ -43,3 +43,9 @@ export const stageOutcomeEnum = pgEnum("stage_outcome", [
  * while the batch isn't sitting at any stage (DRAFT, COMPLETED, FAILED).
  */
 export const stageArrivalEnum = pgEnum("stage_arrival", ["FORWARD", "RETURNED"]);
+
+/**
+ * A label print run recorded at Check 2 (Order/Calculation Check): the batch's
+ * first print, or a later reprint/rerun. See label_print_runs.
+ */
+export const labelPrintKindEnum = pgEnum("label_print_kind", ["FIRST_PRINT", "REPRINT"]);

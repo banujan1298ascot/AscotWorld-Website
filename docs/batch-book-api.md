@@ -130,10 +130,17 @@ Body:
 → `200 { batch: BatchRecord }` or `404` if unknown.
 
 ### `PATCH /api/batch-book/:id`
-Edits a batch. Behaviour depends on its status:
+Edits a batch. Only the Batch Book's own fields can ever be patched —
+`batchType`, `departmentId`, `productName`, `quantity`, `unit`,
+`plannedManufactureDate`, `customFields`; anything else is `422`. In
+particular the label counts (`labelsPrinted`, `labelsReprinted`) are
+**read-only here**: Check 2 records them through the MES
+(`POST /api/mes/batches/:batchId/labels`, see docs/mes-api.md), and no Batch
+Book user — Check 1, QA or admin — can change them from this endpoint.
+Behaviour otherwise depends on status:
 
-- **Draft**: the creator (or `admin`) may edit any field, no reason needed.
-  Requires `batchbook.editOwnDraft`.
+- **Draft**: the creator (or `admin`) may edit those fields, no reason
+  needed. Requires `batchbook.editOwnDraft`.
 - **Confirmed/anything else**: requires `batchbook.editConfirmed` **and** a
   non-empty `reason` — every changed field is written to
   `audit_log_entries` with that reason attached. `batchType`,

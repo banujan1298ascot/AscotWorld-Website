@@ -258,7 +258,7 @@ prototype needs.
 
 ## UI
 
-`src/app/(portal)/mes/page.tsx` — a stage tab strip plus a three-column
+`src/components/mes/MesBoard.tsx` (the board view of `/mes`) — a stage tab strip plus a three-column
 board (Incoming / Returned / In progress). Every action (claim, forward,
 send back, fail) is drag-and-drop **and** a plain button on the card, using
 `@dnd-kit/core` (mouse + touch, spec 3.6) — nothing here depends on drag to
@@ -328,12 +328,53 @@ to load was found and fixed during that check.
 
 ---
 
-## Table view (trial)
+## Board and table views
 
-`src/app/(portal)/mes-table/page.tsx` — the same pipeline laid out like the
-Batch Book: one row per batch across every station, with **Assigned to** and
-**Status** editable in the row. Built as a trial to compare against the
-board; both use the same endpoints and rules, so a change in one shows in
-the other. Every change asks for confirmation first; Send back and Fail
-need a reason, as on the board. Station accounts see only their own
-station, as on the board. The two pages link to each other.
+`/mes` (`src/app/(portal)/mes/page.tsx`) has two views of the same live
+pipeline, switched with the Board / Table control in the header:
+
+- **Board** — `src/components/mes/MesBoard.tsx`, the column layout above.
+- **Table** — `src/components/mes/MesTable.tsx`, laid out like the Batch
+  Book: one row per batch, with **Assigned to** and **Status** editable in
+  the row. Every change asks for confirmation first; Send back and Fail need
+  a reason. A station account doesn't get the Station column — every row is
+  its own station.
+
+Both use the same endpoints and rules, so a change in one shows in the
+other. `?view=table` / `?view=board` picks one (so it can be linked to);
+without it the page opens on whichever view that browser last used
+(localStorage `ascotworld:mes-view`). The old `/mes-table` address
+redirects to `/mes?view=table`.
+
+## Labels printed at Check 2
+
+Check 2 (Order/Calculation Check) prints each batch's labels and records how
+many: the **first print**, then any **reprints / reruns** as separate
+entries, so it's always clear how many were printed first and how many
+again. On the board each Check 2 card has a Labels button ("Record labels",
+or e.g. "550 printed · 25 reprinted"); in the table it's the Labels column.
+
+- **Who:** only Check 2 — its station account, an Order processing operator
+  using the MES unpinned, or an admin. Every other station account is
+  refused, Check 1 included (`canRecordLabels`).
+- **When:** while the batch is at Check 2 (in its queue, waiting or in
+  progress) — a batch sent back to Check 2 can have reprints added.
+- **Rules (`checkLabelRun`):** whole number above zero; a reprint needs a
+  first print first; correcting a first print already recorded needs a
+  reason. Reprint reasons are optional.
+- **Storage:** `label_print_runs`, insert-only — a corrected first print is
+  a new row (the latest counts; the history shows the old one struck
+  through). The totals live on `batch_records.labels_printed` /
+  `labels_reprinted`, updated in the same transaction with an
+  `audit_log_entries` row, and the **Batch Book shows them read-only** — its
+  PATCH endpoint refuses those fields (docs/batch-book-api.md).
+
+### `GET /api/mes/batches/:batchId/labels`
+→ `200 { labels: { labelsPrinted, labelsReprinted, runs: [{ id, kind, quantity, reason, recordedById, recordedByName, recordedAt }] } }`.
+Any signed-in account.
+
+### `POST /api/mes/batches/:batchId/labels`
+Body `{ kind: "FIRST_PRINT" | "REPRINT", quantity: number, reason?: string }`
+→ `200 { labels }` (same shape) · `403` not Check 2 · `409` batch isn't at
+Check 2 · `422` bad quantity / reprint before first print / correction
+without a reason.

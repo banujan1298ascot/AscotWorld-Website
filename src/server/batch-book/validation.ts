@@ -71,8 +71,32 @@ const IMMUTABLE_ONCE_CONFIRMED = new Set([
   "confirmedAt",
 ]);
 
-/** Does this patch touch any field that's locked once the batch is past DRAFT? */
+/** The only fields a Batch Book edit may write at all. Everything else on
+ *  the row is owned by something else — numbering and confirmation, the
+ *  MES's stage tracking, or the label counts Check 2 records in the MES
+ *  (src/server/mes/labels.ts), which Batch Book users can see but never edit. */
+const BATCH_BOOK_FIELDS = new Set([
+  "batchType",
+  "departmentId",
+  "productName",
+  "quantity",
+  "unit",
+  "plannedManufactureDate",
+  "customFields",
+]);
+
+const LABEL_FIELDS = new Set(["labelsPrinted", "labelsReprinted"]);
+
+/** Does this patch touch any field that's locked once the batch is past
+ *  DRAFT — or any field the Batch Book doesn't own at all? */
 export function canEditFields(batch: BatchForAuth, patchKeys: string[]): Verdict {
+  if (patchKeys.some((key) => LABEL_FIELDS.has(key))) {
+    return { ok: false, error: "Label counts are recorded at Check 2 in the MES and can't be edited from the Batch Book." };
+  }
+  const foreign = patchKeys.filter((key) => !BATCH_BOOK_FIELDS.has(key));
+  if (foreign.length > 0) {
+    return { ok: false, error: `These fields can't be edited from the Batch Book: ${foreign.join(", ")}.` };
+  }
   if (batch.status === "DRAFT") return { ok: true };
   const offending = patchKeys.filter((key) => IMMUTABLE_ONCE_CONFIRMED.has(key));
   if (offending.length > 0) {

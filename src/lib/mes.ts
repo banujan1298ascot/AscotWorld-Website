@@ -255,6 +255,89 @@ export function useAllStageQueues(stageIds: string[], pollIntervalMs: number = S
   };
 }
 
+/* ---------------------------------------------------------------------------
+ * Labels printed at Check 2 — src/app/api/mes/batches/[batchId]/labels
+ * ------------------------------------------------------------------------- */
+
+/** The station that prints labels — mirrors LABEL_STATION_SEQUENCE in
+ *  src/server/mes/validation.ts. */
+export const LABEL_STATION_SEQUENCE = 2;
+
+export type LabelPrintKind = "FIRST_PRINT" | "REPRINT";
+
+export interface LabelRun {
+  id: string;
+  kind: LabelPrintKind;
+  quantity: number;
+  reason: string | null;
+  recordedById: string;
+  recordedByName: string;
+  recordedAt: string;
+}
+
+export interface LabelRecord {
+  labelsPrinted: number | null;
+  labelsReprinted: number;
+  runs: LabelRun[];
+}
+
+/** Same rule as canRecordLabels on the server, for deciding whether to show
+ *  the inputs at all — the server checks again on every save. */
+export function canRecordLabels(
+  user: { role: string; mesStage?: number | null; operatorRole?: string | null },
+  stage: Pick<StageDefinition, "sequenceNumber" | "operatorRole">,
+  canClaim: boolean,
+): boolean {
+  if (stage.sequenceNumber !== LABEL_STATION_SEQUENCE) return false;
+  if (user.role === "admin" || user.mesStage === LABEL_STATION_SEQUENCE) return true;
+  if (user.mesStage != null || !canClaim) return false;
+  return !stage.operatorRole || user.operatorRole === stage.operatorRole;
+}
+
+export function useLabelRecord(batchId: string | null) {
+  const { user } = useAuth();
+  const [state, setState] = useState<{ batchId: string | null; record: LabelRecord | null; error: string | null }>({
+    batchId: null,
+    record: null,
+    error: null,
+  });
+
+  useEffect(() => {
+    if (!user || !batchId) return;
+    let ignore = false;
+    apiFetch<{ labels: LabelRecord }>(`/api/mes/batches/${batchId}/labels`, user.id).then(
+      ({ labels }) => !ignore && setState({ batchId, record: labels, error: null }),
+      (err: unknown) =>
+        !ignore &&
+        setState({ batchId, record: null, error: err instanceof Error ? err.message : "Failed to load labels." }),
+    );
+    return () => {
+      ignore = true;
+    };
+  }, [user, batchId]);
+
+  const record = useCallback(
+    async (run: { kind: LabelPrintKind; quantity: number; reason?: string }) => {
+      if (!user || !batchId) throw new Error("Not signed in.");
+      const { labels } = await apiFetch<{ labels: LabelRecord }>(`/api/mes/batches/${batchId}/labels`, user.id, {
+        method: "POST",
+        body: JSON.stringify(run),
+      });
+      setState({ batchId, record: labels, error: null });
+      return labels;
+    },
+    [user, batchId],
+  );
+
+  const current = state.batchId === batchId;
+  return {
+    labels: current ? state.record : null,
+    error: current ? state.error : null,
+    ready: current && (state.record !== null || state.error !== null),
+    record,
+  };
+}
+
 /**
  * Which other stations each station keeps an eye on, by sequence number —
  * shown as live counters at the top of its MES screen so it can see work
