@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { CheckCircle, PencilSimple, Plus, Warning } from "@phosphor-icons/react/dist/ssr";
-import { BatchFlags } from "@/components/mes/BatchFlags";
+import { BatchFlags, FAILED_SURFACE } from "@/components/mes/BatchFlags";
 import {
   Button,
   Card,
@@ -152,8 +152,15 @@ export default function BatchBookPage() {
                   const canEditDraft = batch.status === "DRAFT" && can("batchbook.editOwnDraft") && (isOwnDraft || user.role === "admin");
                   const canEditConfirmed = batch.status !== "DRAFT" && can("batchbook.editConfirmed");
 
+                  // A failed batch's record shows solid red (#FF0F0F) here.
+                  const failedRow = batch.status === "FAILED" ? FAILED_SURFACE : null;
+
                   return (
-                    <tr key={batch.id} className="border-b border-[var(--border)] last:border-0">
+                    <tr
+                      key={batch.id}
+                      className={`border-b border-[var(--border)] last:border-0 ${failedRow?.className ?? ""}`}
+                      style={failedRow?.style}
+                    >
                       <td className="px-4 py-2.5 font-mono text-[13px] font-semibold">
                         {batch.batchNumber ?? <span className="text-[var(--muted-foreground)]">Not yet assigned</span>}
                       </td>

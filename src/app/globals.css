@@ -93,6 +93,11 @@
      is plain urgent orange (its IRELAND badge still shows). */
   --urgent-gradient: linear-gradient(90deg, #ff7a3d 0%, #ff4d00 55%, #f24700 100%);
   --ireland-gradient: linear-gradient(90deg, #008000 0%, #007000 55%, #005c00 100%);
+  /* A failed batch: flat, solid #FF0F0F — no lighter fade like the two
+     gradients above — with solid dark text (white on it would be too faint).
+     Outranks both flags above. */
+  --failed: #ff0f0f;
+  --failed-fill: #ff0f0f;
 
   /* --- dense dashboard spacing scale ------------------------------------ */
   --space-1: 0.25rem;
@@ -380,6 +385,22 @@ body {
   color: var(--foreground);
   border-color: transparent;
 }
+/* Every piece of text on a failed row is full-strength — nothing faded —
+   and its Failed pill is solid white. */
+.batch-flagged--failed {
+  --foreground: #1f0000;
+  --muted-foreground: #1f0000;
+  --subtle-foreground: #1f0000;
+  --border: rgb(31 0 0 / 0.25);
+  --border-strong: rgb(31 0 0 / 0.4);
+  --surface: #ffffff;
+  --surface-sunken: #ffffff;
+  --status-cancelled: #b00000;
+  --status-cancelled-bg: #ffffff;
+  --danger: #b00000;
+  --danger-bg: #ffffff;
+}
+
 /* Ireland's #008000 is too dark for dark ink, so its text is white — like
    the station banner. The frosted controls and notes keep their white fill,
    so inside those the ink goes back to dark. */

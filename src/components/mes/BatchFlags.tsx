@@ -12,7 +12,16 @@ import { BATCH_DESTINATION_LABELS, type BatchRecord } from "@/lib/batchBook";
  * badges.
  */
 
-type Flaggable = Pick<BatchRecord, "urgent" | "destination">;
+type Flaggable = Pick<BatchRecord, "urgent" | "destination"> & Partial<Pick<BatchRecord, "status">>;
+
+/** A failed batch's fill — solid red (#FF0F0F), outranking urgent and
+ *  Ireland wherever a failed batch is shown (the Batch Book, the reports'
+ *  exceptions list). Failed batches leave the MES queues, but the MES uses
+ *  the same rule via flaggedSurface. */
+export const FAILED_SURFACE: { className: string; style: CSSProperties } = {
+  className: "batch-flagged batch-flagged--failed",
+  style: { background: "var(--failed-fill)" },
+};
 
 const isIreland = (batch: Flaggable) => batch.destination === "IRELAND";
 
@@ -35,6 +44,7 @@ function gradient(batch: Flaggable): string | null {
  * batch.
  */
 export function flaggedSurface(batch: Flaggable): { className: string; style?: CSSProperties } {
+  if (batch.status === "FAILED") return FAILED_SURFACE;
   const fill = gradient(batch);
   if (!fill) return { className: "" };
   // Ireland-only gets white ink on its green; anything urgent keeps dark ink.

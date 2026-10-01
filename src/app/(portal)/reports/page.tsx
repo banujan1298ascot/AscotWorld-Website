@@ -15,6 +15,7 @@ import {
   Warning,
 } from "@phosphor-icons/react/dist/ssr";
 import { Button, Card, EmptyState, ErrorNotice, PageHeader, PermissionNotice, Skeleton } from "@/components/ui";
+import { FAILED_SURFACE } from "@/components/mes/BatchFlags";
 import { OutputChart } from "@/components/reports/OutputChart";
 import { ProductTimingSearch } from "@/components/reports/ProductTimingSearch";
 import { useAuth } from "@/lib/auth";
@@ -307,7 +308,11 @@ export default function ReportsPage() {
                   return (
                     <li
                       key={item.id}
-                      className="flex min-w-0 gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-sunken)] px-3 py-2.5"
+                      // A failure is filled solid red (#FF0F0F), as in the Batch Book.
+                      className={`flex min-w-0 gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-sunken)] px-3 py-2.5 ${
+                        failed ? FAILED_SURFACE.className : ""
+                      }`}
+                      style={failed ? FAILED_SURFACE.style : undefined}
                     >
                       <span
                         className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg"
