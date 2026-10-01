@@ -194,3 +194,16 @@ export function formatDuration(seconds: number | null | undefined): string {
   if (hours < 24) return `${Math.round(hours * 10) / 10}h`;
   return `${Math.round((hours / 24) * 10) / 10}d`;
 }
+
+/** How often a station's live counters re-check the stations it watches. */
+export const STATION_COUNTER_POLL_MS = 5000;
+
+/** Live per-station counts for the counters at the top of an MES screen.
+ *  Unlike useStationLoads this uses the counts-only endpoint, which station
+ *  accounts may read without access to the reports. */
+export function useStationCounters(departmentId: string | undefined) {
+  return useApiResource<{ stations: StationLoad[] }>(
+    departmentId ? `/api/mes/station-loads?departmentId=${enc(departmentId)}` : null,
+    STATION_COUNTER_POLL_MS,
+  );
+}

@@ -167,6 +167,12 @@ All requests: header `x-staff-id: <staff id>`.
 ### `GET /api/mes/stages/:stageId/queue`
 → `200 { queue: { stage, incoming: BatchRecord[], returned: BatchRecord[], inProgress: { batch, operatorId, operatorName, receivedAt }[] } }`
 
+### `GET /api/mes/station-loads?departmentId=<uuid>`
+→ `200 { stations: { stageId, stageName, sequenceNumber, incoming, returned, inProgress }[] }`
+for stations 2 onward. Counts only — no batch details — so any signed-in
+account may read it, including station accounts that can't open the other
+queues. Feeds the live station counters (see UI below).
+
 ### `POST /api/mes/stages/:stageId/batches/:batchId/claim`
 Requires `mes.claim`. → `200 { transition }` · `409` if already claimed, or
 if the calling operator already holds a different batch open elsewhere.
@@ -260,6 +266,16 @@ be usable, which also makes it possible to verify the module end-to-end via
 button clicks alone. Send-back and fail open a modal requiring a non-empty
 reason before submitting. Newly-arrived cards carry a "New" badge until
 claimed (see Notifications above).
+
+**Live station counters.** At the top of a station's screen, a strip shows
+how many batches some *other* stations hold right now — incoming (including
+returned rework) plus in progress — refreshed every 5 seconds from
+`/api/mes/station-loads`. Which station watches which is `WATCHED_STATIONS`
+in `src/lib/mes.ts`: station 2 sees 3 and 4, station 3 sees 2 and 4,
+station 5 sees 2, 3 and 4; the others show none. Component:
+`src/components/mes/StationCounters.tsx`. A pinned station account sees it
+under its banner; an unpinned account sees it for whichever stage is
+selected (on the table view, when the Station filter picks one).
 
 Not built in this phase: a department switcher (Bespoke is the only
 department so far), the reason-code dropdown UI for `reason_codes` (it

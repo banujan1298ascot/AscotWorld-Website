@@ -254,3 +254,14 @@ export function useAllStageQueues(stageIds: string[], pollIntervalMs: number = S
     fail: (stageId: string, batchId: string, notes: string) => act(`${base(stageId, batchId)}/fail`, { notes }),
   };
 }
+
+/**
+ * Which other stations each station keeps an eye on, by sequence number —
+ * shown as live counters at the top of its MES screen so it can see work
+ * building up around it. A station not listed here shows no counters.
+ */
+export const WATCHED_STATIONS: Readonly<Record<number, readonly number[]>> = {
+  2: [3, 4],
+  3: [2, 4],
+  5: [2, 3, 4],
+};

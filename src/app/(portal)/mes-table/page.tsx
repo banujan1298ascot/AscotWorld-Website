@@ -20,6 +20,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { useDepartments, type BatchRecord } from "@/lib/batchBook";
 import { useAllStageQueues, useStages, type StageDefinition } from "@/lib/mes";
+import { StationCounters } from "@/components/mes/StationCounters";
 import { staffCollection } from "@/lib/seed";
 import { useCollection } from "@/lib/storage";
 import { OPERATOR_ROLES, roleCan, type StaffMember } from "@/lib/types";
@@ -223,6 +224,15 @@ export default function MesTablePage() {
           Station {visibleStages[0].sequenceNumber} · {visibleStages[0].name} — you only see this station&apos;s work.
         </p>
       ) : null}
+
+      {/* The station this screen is about: the pinned one, or the one picked
+          in the Station filter. */}
+      <StationCounters
+        departmentId={departmentId}
+        sequenceNumber={
+          pinnedStage ?? visibleStages.find((s) => s.id === stationFilter)?.sequenceNumber
+        }
+      />
 
       {loadError ? (
         <div className="mb-4">

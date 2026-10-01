@@ -32,6 +32,7 @@ import { Avatar, Button, Card, EmptyState, ErrorNotice, Field, Modal, PageHeader
 import { useAuth } from "@/lib/auth";
 import { BATCH_BOOK_STATUS_LABELS, useDepartments, type BatchRecord } from "@/lib/batchBook";
 import { useStageQueue, useStages, type InProgressEntry } from "@/lib/mes";
+import { StationCounters } from "@/components/mes/StationCounters";
 import { useStageArrivalAlerts } from "@/lib/mesAlerts";
 import { staffCollection } from "@/lib/seed";
 import { isAudioUnlocked, unlockAudio, useSoundAlertsEnabled } from "@/lib/soundAlerts";
@@ -273,6 +274,12 @@ export default function MesPipelinePage() {
         </div>
       ) : null}
 
+      {/* A station tablet sees the stations around it right under its own
+          banner; without a pin they follow the switcher instead, below. */}
+      {pinnedStage !== null ? (
+        <StationCounters departmentId={departmentId} sequenceNumber={currentStage?.sequenceNumber} />
+      ) : null}
+
       {!audioUnlocked ? (
         <Card className="mb-4 flex flex-wrap items-center justify-between gap-2 border-[var(--brand-200)] bg-[var(--brand-50)]">
           <p className="text-sm font-semibold text-[var(--brand-700)]">
@@ -333,6 +340,10 @@ export default function MesPipelinePage() {
                 </button>
               ))}
             </div>
+          ) : null}
+
+          {pinnedStage === null ? (
+            <StationCounters departmentId={departmentId} sequenceNumber={currentStage?.sequenceNumber} />
           ) : null}
 
           {actionError ? (
