@@ -166,13 +166,8 @@ export default function BatchBookPage() {
                       </td>
                       <td className="px-4 py-2.5">
                         {batch.productName ?? "—"}
-                        {/* Own line under the name, as on the MES cards and
-                            rows, rather than butting up against it. */}
-                        {batch.urgent || batch.destination ? (
-                          <div className="mt-1.5">
-                            <BatchFlags batch={batch} />
-                          </div>
-                        ) : null}
+                        {/* Alongside the name, with a clear gap before it. */}
+                        <BatchFlags batch={batch} className="ml-3 align-middle" />
                       </td>
                       <td className="px-4 py-2.5">{departmentById.get(batch.departmentId) ?? "—"}</td>
                       <td className="px-4 py-2.5">
