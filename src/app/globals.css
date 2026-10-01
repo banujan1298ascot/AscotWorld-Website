@@ -78,22 +78,22 @@
      Carried on the batch through every MES station. `--x` is the stripe and
      badge fill, `--x-ink` the text on that fill, `--x-bg` / `--x-foreground`
      the tinted card or row and its text. Always paired with a text badge. */
-  --urgent: #f59e0b;
-  --urgent-ink: #3b2500;
-  --urgent-bg: #fff6e0;
-  --urgent-foreground: #92400e;
+  --urgent: #ff4d00;
+  --urgent-ink: #2a0b00;
+  --urgent-bg: #ffebe0;
+  --urgent-foreground: #a33100;
   --ireland: #39ff14;
   --ireland-ink: #062b00;
   --ireland-bg: #edffe8;
   --ireland-foreground: #1a6b0c;
-  /* Solid fills for a flagged MES card or row, in the same left-to-right
-     style as --brand-gradient on the station banner. Bright enough to stand
+  /* Solid fills for a flagged MES card or row (urgent is built on #FF4D00),
+     left to right like --brand-gradient on the station banner. Bright enough to stand
      out on either theme, so not redefined for dark mode; text on them is
-     dark (see .batch-flagged below). A batch that's both runs amber into
+     dark (see .batch-flagged below). A batch that's both runs orange into
      green. */
-  --urgent-gradient: linear-gradient(90deg, #fcd34d 0%, #f59e0b 55%, #ea8a04 100%);
+  --urgent-gradient: linear-gradient(90deg, #ff7a3d 0%, #ff4d00 55%, #f24700 100%);
   --ireland-gradient: linear-gradient(90deg, #a3ff8a 0%, #39ff14 50%, #22c90d 100%);
-  --urgent-ireland-gradient: linear-gradient(90deg, #fcd34d 0%, #f59e0b 38%, #39ff14 68%, #22c90d 100%);
+  --urgent-ireland-gradient: linear-gradient(90deg, #ff7a3d 0%, #ff4d00 38%, #39ff14 68%, #22c90d 100%);
 
   /* --- dense dashboard spacing scale ------------------------------------ */
   --space-1: 0.25rem;
@@ -161,10 +161,10 @@
   --line-tablets: #e879f9;
   --line-tablets-bg: #3a1638;
 
-  --urgent: #fbbf24;
-  --urgent-ink: #2b1b00;
-  --urgent-bg: #33250a;
-  --urgent-foreground: #fcd34d;
+  --urgent: #ff4d00;
+  --urgent-ink: #2a0b00;
+  --urgent-bg: #3a1505;
+  --urgent-foreground: #ff8a57;
   --ireland: #39ff14;
   --ireland-ink: #062b00;
   --ireland-bg: #0c2a0a;
@@ -356,13 +356,13 @@ body {
    buttons, dropdowns) stays legible on the bright fill in either theme:
    dark ink for text, frosted white for controls. */
 .batch-flagged {
-  --foreground: #1f1400;
-  --muted-foreground: rgb(31 20 0 / 0.84);
-  --subtle-foreground: rgb(31 20 0 / 0.7);
+  --foreground: #1f0800;
+  --muted-foreground: rgb(31 8 0 / 0.84);
+  --subtle-foreground: rgb(31 8 0 / 0.7);
   --surface: rgb(255 255 255 / 0.62);
   --surface-sunken: rgb(255 255 255 / 0.4);
-  --border: rgb(31 20 0 / 0.2);
-  --border-strong: rgb(31 20 0 / 0.32);
+  --border: rgb(31 8 0 / 0.2);
+  --border-strong: rgb(31 8 0 / 0.32);
   /* Status text sits on the frosted controls, so it keeps dark tones even in
      dark mode — the theme's light ones would wash out on white. */
   --status-scheduled: #3f4b5e;

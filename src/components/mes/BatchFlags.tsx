@@ -4,9 +4,9 @@ import { BATCH_DESTINATION_LABELS, type BatchRecord } from "@/lib/batchBook";
 
 /*
  * Flags set at Batch Book entry that follow a batch through every MES
- * station: an urgent batch's card or row is filled solid amber, stock for
+ * station: an urgent batch's card or row is filled solid orange (#FF4D00), stock for
  * Ireland solid neon green — gradients in the style of the station banner.
- * A batch that's both runs amber into green. Colour is never the only
+ * A batch that's both runs orange into green. Colour is never the only
  * signal: every flagged batch also carries text badges.
  */
 
@@ -35,7 +35,7 @@ function gradient(batch: Flaggable): string | null {
 export function flaggedSurface(batch: Flaggable): { className: string; style?: CSSProperties } {
   const fill = gradient(batch);
   if (!fill) return { className: "" };
-  // Ireland-only gets green-tinted ink; anything urgent keeps the amber ink.
+  // Ireland-only gets green-tinted ink; anything urgent keeps the orange-brown ink.
   const ink = batch.urgent ? "" : " batch-flagged--ireland";
   return { className: `batch-flagged${ink}`, style: { background: fill } };
 }
@@ -53,7 +53,7 @@ export function BatchFlags({ batch, className = "" }: { batch: Flaggable; classN
       {batch.urgent ? (
         <span
           className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide"
-          style={{ background: "#2b1b00", color: "#fcd34d" }}
+          style={{ background: "#2a0b00", color: "#ff7a3d" }}
         >
           <Warning size={11} weight="fill" />
           Urgent

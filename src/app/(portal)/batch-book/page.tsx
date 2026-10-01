@@ -236,7 +236,7 @@ export default function BatchBookPage() {
 
 /**
  * Priority and destination, entered with the batch and carried through every
- * MES station: urgent shows amber, stock for Ireland neon green (see
+ * MES station: urgent shows orange (#FF4D00), stock for Ireland neon green (see
  * src/components/mes/BatchFlags.tsx). Priority is only ever "urgent" or left
  * alone. The destination has no default — a wrong pre-filled market would
  * look exactly like a right one — so it must be picked before confirming.
@@ -279,7 +279,7 @@ function PriorityAndDestinationFields({
               Urgent
             </span>
             <span className="block text-xs text-[var(--muted-foreground)]">
-              Leave unticked for normal priority. Urgent batches show amber at every MES station.
+              Leave unticked for normal priority. Urgent batches show orange at every MES station.
             </span>
           </span>
         </label>
