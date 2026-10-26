@@ -7,6 +7,7 @@ import { Logo } from "@/components/Logo";
 import { Avatar, Button, Field, Input } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { staffCollection } from "@/lib/seed";
+import { stationDotStyle } from "@/lib/stationColors";
 import { useCollection } from "@/lib/storage";
 import { homeRouteFor } from "@/modules/registry";
 import { ROLES, type Role } from "@/lib/types";
@@ -248,8 +249,8 @@ export default function LoginPage() {
                   >
                     <span
                       className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full
-                        text-[13px] font-extrabold text-white"
-                      style={{ background: "var(--brand-gradient)" }}
+                        text-[13px] font-extrabold"
+                      style={stationDotStyle(person.mesStage)}
                       aria-hidden="true"
                     >
                       {person.mesStage}

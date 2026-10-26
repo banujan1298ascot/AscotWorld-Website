@@ -23,6 +23,7 @@ import { BatchFlags, flaggedSurface } from "@/components/mes/BatchFlags";
 import { LabelsButton, LabelsModal } from "@/components/mes/LabelsModal";
 import { StationCounters } from "@/components/mes/StationCounters";
 import { staffCollection } from "@/lib/seed";
+import { stationDotStyle, usePageStation } from "@/lib/stationColors";
 import { useCollection } from "@/lib/storage";
 import { OPERATOR_ROLES, roleCan, type StaffMember } from "@/lib/types";
 
@@ -137,6 +138,10 @@ export function MesTable({ viewSwitch }: { viewSwitch: ReactNode }) {
 
   const stageBySequence = (n: number) => boardStages.find((s) => s.sequenceNumber === n);
 
+  // Filtered to one station, the page takes on that station's colour; "All
+  // stations" leaves it to the signed-in account's own.
+  usePageStation(visibleStages.find((s) => s.id === stationFilter)?.sequenceNumber);
+
   if (!user) return null;
   if (!can("mes.claim") && !can("dashboard.view")) {
     return (
@@ -224,7 +229,10 @@ export function MesTable({ viewSwitch }: { viewSwitch: ReactNode }) {
           className="mb-4 flex flex-wrap items-center gap-2 rounded-lg px-4 py-3 text-white"
           style={{ background: "var(--brand-gradient)" }}
         >
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/20 text-sm font-extrabold">
+          <span
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm font-extrabold ring-2 ring-white/70"
+            style={stationDotStyle(visibleStages[0].sequenceNumber)}
+          >
             {visibleStages[0].sequenceNumber}
           </span>
           <p className="text-sm font-bold">
@@ -510,8 +518,14 @@ function TableRow({
       </td>
       {showStation ? (
         <td className="px-4 py-2">
-          <span className="font-semibold">
-            <span className="text-[var(--muted-foreground)]">{stage.sequenceNumber}.</span> {stage.name}
+          <span className="inline-flex items-center gap-2 font-semibold">
+            <span
+              className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-extrabold"
+              style={stationDotStyle(stage.sequenceNumber)}
+            >
+              {stage.sequenceNumber}
+            </span>
+            {stage.name}
           </span>
         </td>
       ) : null}

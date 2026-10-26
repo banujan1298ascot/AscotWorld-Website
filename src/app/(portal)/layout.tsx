@@ -21,6 +21,7 @@ import { useUnreadNotificationCount } from "@/lib/notifications";
 import { useDueTomorrowReminders } from "@/lib/reminders";
 import { prefetchMes } from "@/lib/apiCache";
 import { useSidebarHidden } from "@/lib/sidebar";
+import { useStationBackground } from "@/lib/stationColors";
 import { resetAllDemoData } from "@/lib/storage";
 import { useTheme } from "@/lib/theme";
 import { ROLES, type StaffMember } from "@/lib/types";
@@ -67,6 +68,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const badges = useModuleBadges(user?.id);
   useDueTomorrowReminders(user?.id);
   const [sidebarHidden, setSidebarHidden] = useSidebarHidden();
+  // A station account's pages all sit on its station's colour.
+  useStationBackground(user?.mesStage);
 
   useEffect(() => {
     if (ready && !user) router.replace("/login");

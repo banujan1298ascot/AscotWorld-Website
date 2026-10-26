@@ -466,6 +466,28 @@ body {
     radial-gradient(55% 45% at 5% 105%, rgb(53 77 176 / 0.3) 0%, transparent 60%);
 }
 
+/* Station colours (src/lib/stationColors.ts): a station account's pages,
+   and the MES while showing a station, sit on that station's light pastel.
+   Cards stay white on top of it. Dark mode keeps the same hue as a deep
+   tint, so light text stays readable. */
+body {
+  transition: background-color 300ms ease;
+}
+:root[data-station="1"] { --background: #ffe6cf; } /* Check 1 — orange */
+:root[data-station="2"] { --background: #ece3fc; } /* Check 2 — purple */
+:root[data-station="3"] { --background: #dbe6ff; } /* Check 3 — blue */
+:root[data-station="4"] { --background: #ffdede; } /* Check 4 — red */
+:root[data-station="5"] { --background: #d4f1fc; } /* Check 5 — sky blue */
+:root[data-station="6"] { --background: #fff5bf; } /* Check 6 — yellow */
+:root[data-station="7"] { --background: #dcf5e2; } /* Warehouse — green */
+:root[data-theme="dark"][data-station="1"] { --background: #24150a; }
+:root[data-theme="dark"][data-station="2"] { --background: #1a1231; }
+:root[data-theme="dark"][data-station="3"] { --background: #0a1637; }
+:root[data-theme="dark"][data-station="4"] { --background: #260c12; }
+:root[data-theme="dark"][data-station="5"] { --background: #06202f; }
+:root[data-theme="dark"][data-station="6"] { --background: #221d07; }
+:root[data-theme="dark"][data-station="7"] { --background: #082110; }
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

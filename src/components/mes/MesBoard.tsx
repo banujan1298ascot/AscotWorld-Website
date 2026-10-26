@@ -37,6 +37,7 @@ import { StationCounters } from "@/components/mes/StationCounters";
 import { useStageArrivalAlerts } from "@/lib/mesAlerts";
 import { staffCollection } from "@/lib/seed";
 import { isAudioUnlocked, unlockAudio, useSoundAlertsEnabled } from "@/lib/soundAlerts";
+import { stationDotStyle, usePageStation } from "@/lib/stationColors";
 import { useCollection } from "@/lib/storage";
 import { OPERATOR_ROLES, roleCan, type StaffMember } from "@/lib/types";
 
@@ -162,6 +163,9 @@ export function MesBoard({ viewSwitch }: { viewSwitch: ReactNode }) {
     [staff, currentStage],
   );
 
+  // The page takes on the colour of the station being looked at.
+  usePageStation(currentStage?.sequenceNumber);
+
   if (!user) return null;
 
   /** At a supervised station only its supervisor (the account pinned there)
@@ -284,7 +288,10 @@ export function MesBoard({ viewSwitch }: { viewSwitch: ReactNode }) {
           className="mb-4 flex flex-wrap items-center gap-2 rounded-lg px-4 py-3 text-white"
           style={{ background: "var(--brand-gradient)" }}
         >
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/20 text-sm font-extrabold">
+          <span
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm font-extrabold ring-2 ring-white/70"
+            style={stationDotStyle(currentStage.sequenceNumber)}
+          >
             {currentStage.sequenceNumber}
           </span>
           <p className="text-sm font-bold">Station {currentStage.sequenceNumber} · {currentStage.name}</p>
@@ -350,13 +357,20 @@ export function MesBoard({ viewSwitch }: { viewSwitch: ReactNode }) {
                 <button
                   key={stage.id}
                   onClick={() => setSelectedStageId(stage.id)}
-                  className={`shrink-0 cursor-pointer rounded-md px-4 py-3 text-[13px] font-semibold whitespace-nowrap transition-colors duration-150 ${
+                  aria-pressed={stage.id === currentStageId}
+                  className={`flex shrink-0 cursor-pointer items-center gap-2 rounded-md border px-3 py-2.5 text-[13px] font-semibold whitespace-nowrap transition-colors duration-150 ${
                     stage.id === currentStageId
-                      ? "bg-[var(--brand-600)] text-white"
-                      : "bg-[var(--surface)] text-[var(--muted-foreground)] border border-[var(--border)] hover:bg-[var(--surface-sunken)]"
+                      ? "border-transparent bg-[var(--brand-600)] text-white"
+                      : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:bg-[var(--surface-sunken)]"
                   }`}
                 >
-                  {stage.sequenceNumber}. {stage.name}
+                  <span
+                    className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-extrabold"
+                    style={stationDotStyle(stage.sequenceNumber)}
+                  >
+                    {stage.sequenceNumber}
+                  </span>
+                  {stage.name}
                 </button>
               ))}
             </div>
