@@ -75,9 +75,10 @@
   --line-tablets-bg: #fbe7fa;
 
   /* --- batch flags set at Batch Book entry ---------------------------------
-     Carried on the batch through every MES station. `--x` is the stripe and
-     badge fill, `--x-ink` the text on that fill, `--x-bg` / `--x-foreground`
-     the tinted card or row and its text. Always paired with a text badge. */
+     Shown as text badges (URGENT, IRELAND) through every MES station — the
+     cards and rows themselves aren't coloured. `--x` is the badge fill,
+     `--x-ink` the text on it, `--x-bg` the tinted choice in the Batch Book
+     form. */
   --urgent: #ff4d00;
   --urgent-ink: #2a0b00;
   --urgent-bg: #ffebe0;
@@ -86,16 +87,8 @@
   --ireland-ink: #ffffff;
   --ireland-bg: #e6f3e6;
   --ireland-foreground: #006400;
-  /* Solid fills for a flagged MES card or row, left to right like
-     --brand-gradient on the station banner: urgent built on #FF4D00 (dark
-     text), Ireland on #008000 (white text) — see .batch-flagged below. The
-     same in both themes. Urgent takes priority: an urgent batch for Ireland
-     is plain urgent orange (its IRELAND badge still shows). */
-  --urgent-gradient: linear-gradient(90deg, #ff7a3d 0%, #ff4d00 55%, #f24700 100%);
-  --ireland-gradient: linear-gradient(90deg, #008000 0%, #007000 55%, #005c00 100%);
-  /* A failed batch: flat, solid #FF0F0F — no lighter fade like the two
-     gradients above — with solid dark text (white on it would be too faint).
-     Outranks both flags above. */
+  /* A failed batch: flat, solid #FF0F0F — no lighter fade — with solid dark
+     text (white on it would be too faint). See .batch-flagged below. */
   --failed: #ff0f0f;
   --failed-fill: #ff0f0f;
 
@@ -374,11 +367,11 @@ body {
   box-shadow: var(--shadow-glow);
 }
 
-/* A flagged MES batch (urgent / Ireland) filled with its solid gradient —
-   see src/components/mes/BatchFlags.tsx. The theme's text, surface and
-   border colours are re-pointed inside it, so everything on the card (text,
-   buttons, dropdowns) stays legible on the bright fill in either theme:
-   dark ink for text, frosted white for controls. */
+/* A batch row or card on a solid fill — a failed batch's red (see
+   src/components/mes/BatchFlags.tsx). The theme's text, surface and border
+   colours are re-pointed inside it, so everything on it (text, buttons,
+   dropdowns) stays legible on the bright fill in either theme: dark ink for
+   text, frosted white for controls. */
 .batch-flagged {
   --foreground: #1f0800;
   --muted-foreground: rgb(31 8 0 / 0.84);
@@ -421,34 +414,6 @@ body {
   --danger-bg: #ffffff;
 }
 
-/* Ireland's #008000 is too dark for dark ink, so its text is white — like
-   the station banner. The frosted controls and notes keep their white fill,
-   so inside those the ink goes back to dark. */
-.batch-flagged--ireland {
-  --foreground: #ffffff;
-  --muted-foreground: rgb(255 255 255 / 0.88);
-  --subtle-foreground: rgb(255 255 255 / 0.76);
-  --border: rgb(255 255 255 / 0.28);
-  --border-strong: rgb(255 255 255 / 0.45);
-  --status-qa: #ffd9bf;
-  --warning: #ffd9bf;
-}
-.batch-flagged--ireland :is(
-    select,
-    input,
-    [role="note"],
-    [class*="bg-[var(--surface)]"],
-    [class*="bg-[var(--surface-sunken)]"],
-    [class*="bg-[var(--status-production-bg)]"]
-  ) {
-  --foreground: #052400;
-  --muted-foreground: rgb(5 36 0 / 0.84);
-  --subtle-foreground: rgb(5 36 0 / 0.7);
-  --border: rgb(5 36 0 / 0.2);
-  --border-strong: rgb(5 36 0 / 0.32);
-  --status-qa: #7a2c0c;
-  --warning: #7a2c0c;
-}
 
 /* Faint brand-coloured wash behind the portal shell, echoing the molecule
    field used on entry screens without repeating it verbatim. */
