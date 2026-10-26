@@ -433,8 +433,7 @@ body {
 
 /* Station colours (src/lib/stationColors.ts): a station account's pages,
    and the MES while showing a station, sit on that station's light pastel.
-   Cards stay white on top of it. Dark mode keeps the same hue as a deep
-   tint, so light text stays readable. */
+   Cards stay white on top of it (dark in dark mode — see below). */
 body {
   transition: background-color 300ms ease;
 }
@@ -447,13 +446,26 @@ body {
 :root[data-station="5"] { --background: #cbe6ff; } /* Check 5 — sky blue */
 :root[data-station="6"] { --background: #f9e1a8; } /* Check 6 — yellow */
 :root[data-station="7"] { --background: #d6e5bd; } /* Warehouse — green */
-:root[data-theme="dark"][data-station="1"] { --background: #24150a; }
-:root[data-theme="dark"][data-station="2"] { --background: #1a1231; }
-:root[data-theme="dark"][data-station="3"] { --background: #0a1637; }
-:root[data-theme="dark"][data-station="4"] { --background: #260c12; }
-:root[data-theme="dark"][data-station="5"] { --background: #06202f; }
-:root[data-theme="dark"][data-station="6"] { --background: #221d07; }
-:root[data-theme="dark"][data-station="7"] { --background: #082110; }
+/* Dark mode keeps the same pastel (the user's choice); everything else stays
+   dark. So text sitting straight on the pastel — page titles, descriptions,
+   filter labels — takes dark ink, and anything with a fill of its own
+   (cards, tables, dialogs, controls, banners) goes back to the dark theme's
+   light ink. Failed rows keep their own ink (.batch-flagged). */
+:root[data-theme="dark"][data-station] .portal-ambient {
+  background-image: none;
+}
+:root[data-theme="dark"][data-station] main {
+  --foreground: #1e1e1e;
+  --muted-foreground: rgb(30 30 30 / 0.78);
+  --subtle-foreground: rgb(30 30 30 / 0.62);
+}
+:root[data-theme="dark"][data-station]
+  main
+  :is([class^="bg-"], [class*=" bg-"], [style*="background"]):not(.batch-flagged, .batch-flagged *) {
+  --foreground: #e8edf7;
+  --muted-foreground: #9aa8c2;
+  --subtle-foreground: #7c8aa5;
+}
 
 @media (prefers-reduced-motion: reduce) {
   *,

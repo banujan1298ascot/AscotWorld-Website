@@ -2,8 +2,8 @@
 
 /**
  * Each station's colour, by its sequence number (Check 1-6, Warehouse = 7).
- * A station account's pages all sit on its light pastel (dark tint in dark
- * mode), and so does the MES while you're looking at a station — the
+ * A station account's pages all sit on its light pastel (in dark mode too),
+ * and so does the MES while you're looking at a station — the
  * `--station-*` tokens and `:root[data-station]` rules in globals.css.
  * `dot` is the solid shade for the small station markers (numbers in the
  * switcher, the counters, the table's Station column).
