@@ -438,13 +438,15 @@ body {
 body {
   transition: background-color 300ms ease;
 }
-:root[data-station="1"] { --background: #ffe6cf; } /* Check 1 — orange */
-:root[data-station="2"] { --background: #ece3fc; } /* Check 2 — purple */
-:root[data-station="3"] { --background: #dbe6ff; } /* Check 3 — blue */
-:root[data-station="4"] { --background: #ffdede; } /* Check 4 — red */
-:root[data-station="5"] { --background: #d4f1fc; } /* Check 5 — sky blue */
-:root[data-station="6"] { --background: #fff5bf; } /* Check 6 — yellow */
-:root[data-station="7"] { --background: #dcf5e2; } /* Warehouse — green */
+/* The user's chosen source: designpixie.com's pastel palettes — "Gelato
+   Days" for most, "Smoothie Bar" for red and blue, "Pool Party" for sky blue. */
+:root[data-station="1"] { --background: #ffdab4; } /* Check 1 — orange */
+:root[data-station="2"] { --background: #dcccec; } /* Check 2 — purple */
+:root[data-station="3"] { --background: #b0c7e3; } /* Check 3 — blue */
+:root[data-station="4"] { --background: #ffa7a6; } /* Check 4 — red */
+:root[data-station="5"] { --background: #cbe6ff; } /* Check 5 — sky blue */
+:root[data-station="6"] { --background: #f9e1a8; } /* Check 6 — yellow */
+:root[data-station="7"] { --background: #d6e5bd; } /* Warehouse — green */
 :root[data-theme="dark"][data-station="1"] { --background: #24150a; }
 :root[data-theme="dark"][data-station="2"] { --background: #1a1231; }
 :root[data-theme="dark"][data-station="3"] { --background: #0a1637; }
