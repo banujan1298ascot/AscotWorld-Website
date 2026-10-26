@@ -439,13 +439,32 @@ body {
 }
 /* The user's chosen source: designpixie.com's pastel palettes — "Gelato
    Days" for most, "Smoothie Bar" for red and blue, "Pool Party" for sky blue. */
-:root[data-station="1"] { --background: #ffdab4; } /* Check 1 — orange */
-:root[data-station="2"] { --background: #dcccec; } /* Check 2 — purple */
-:root[data-station="3"] { --background: #b0c7e3; } /* Check 3 — blue */
-:root[data-station="4"] { --background: #ffa7a6; } /* Check 4 — red */
-:root[data-station="5"] { --background: #cbe6ff; } /* Check 5 — sky blue */
-:root[data-station="6"] { --background: #f9e1a8; } /* Check 6 — yellow */
-:root[data-station="7"] { --background: #d6e5bd; } /* Warehouse — green */
+:root {
+  --station-1: #ffdab4; /* Check 1 — orange */
+  --station-2: #dcccec; /* Check 2 — purple */
+  --station-3: #b0c7e3; /* Check 3 — blue */
+  --station-4: #ffa7a6; /* Check 4 — red */
+  --station-5: #cbe6ff; /* Check 5 — sky blue */
+  --station-6: #f9e1a8; /* Check 6 — yellow */
+  --station-7: #d6e5bd; /* Warehouse — green */
+}
+:root[data-station="1"] { --background: var(--station-1); }
+:root[data-station="2"] { --background: var(--station-2); }
+:root[data-station="3"] { --background: var(--station-3); }
+:root[data-station="4"] { --background: var(--station-4); }
+:root[data-station="5"] { --background: var(--station-5); }
+:root[data-station="6"] { --background: var(--station-6); }
+:root[data-station="7"] { --background: var(--station-7); }
+/* Something filled with a station's pastel (e.g. the "Other stations"
+   counters) — dark ink on it in either theme. */
+.station-pastel {
+  --foreground: #1e1e1e;
+  --muted-foreground: rgb(30 30 30 / 0.78);
+  --subtle-foreground: rgb(30 30 30 / 0.62);
+  --border: rgb(0 0 0 / 0.08);
+  color: var(--foreground);
+}
+
 /* Dark mode keeps the same pastel (the user's choice); everything else stays
    dark. So text sitting straight on the pastel — page titles, descriptions,
    filter labels — takes dark ink, and anything with a fill of its own
@@ -461,7 +480,12 @@ body {
 }
 :root[data-theme="dark"][data-station]
   main
-  :is([class^="bg-"], [class*=" bg-"], [style*="background"]):not(.batch-flagged, .batch-flagged *) {
+  :is([class^="bg-"], [class*=" bg-"], [style*="background"]):not(
+    .batch-flagged,
+    .batch-flagged *,
+    .station-pastel,
+    .station-pastel *
+  ) {
   --foreground: #e8edf7;
   --muted-foreground: #9aa8c2;
   --subtle-foreground: #7c8aa5;

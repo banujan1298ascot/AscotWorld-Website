@@ -48,11 +48,11 @@ like any other batch, then waits.
 | # | Name | Fail authority | Releases to Warehouse | Supervised |
 |---|---|---|---|---|
 | 1 | Batch Book Entry | no | no | no |
-| 2 | Order/Calculation Check | no | no | no |
-| 3 | Raw Material Picking | no | no | no |
-| 4 | Supervisor Material Check | **yes** | no | **yes** |
+| 2 | Order Processing | no | no | no |
+| 3 | Dispensary | no | no | no |
+| 4 | Bespoke Lab | **yes** | no | **yes** |
 | 5 | Production Check | **yes** | no | no |
-| 6 | Final QA Release | **yes** | **yes** | no |
+| 6 | Releasor | **yes** | **yes** | no |
 | 7 | Warehouse | no | no | no |
 
 Only Check 4 onward can fail a batch (spec 3.2) — enforced by checking the
@@ -96,9 +96,9 @@ Confirmed 2026-09-29: some stations only take one kind of operator.
 
 | Station | Only these can be assigned (or claim) |
 |---|---|
-| 2 · Order/Calculation Check | Order processing operators |
-| 3 · Raw Material Picking (the Dispensary) | Dispensary technicians |
-| 4 · Supervisor Material Check | Bespoke production operators |
+| 2 · Order Processing | Order processing operators |
+| 3 · Dispensary | Dispensary technicians |
+| 4 · Bespoke Lab | Bespoke production operators |
 | 5–7 | Anyone who can operate the MES |
 
 `stage_definitions.operator_role` holds each station's requirement;
@@ -348,7 +348,7 @@ redirects to `/mes?view=table`.
 
 ## Labels printed at Check 2
 
-Check 2 (Order/Calculation Check) prints each batch's labels and records how
+Check 2 (Order Processing) prints each batch's labels and records how
 many: the **first print**, then any **reprints / reruns** as separate
 entries, so it's always clear how many were printed first and how many
 again. On the board each Check 2 card has a Labels button ("Record labels",

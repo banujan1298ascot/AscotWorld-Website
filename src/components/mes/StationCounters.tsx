@@ -2,7 +2,7 @@
 
 import { WATCHED_STATIONS } from "@/lib/mes";
 import { useStationCounters } from "@/lib/productionReport";
-import { stationDotStyle } from "@/lib/stationColors";
+import { stationColor, stationDotStyle } from "@/lib/stationColors";
 
 /**
  * Live counters for the stations around this one (WATCHED_STATIONS): how
@@ -48,9 +48,12 @@ export function StationCounters({
           const inProgress = load ? load.inProgress : null;
           const total = incoming != null && inProgress != null ? incoming + inProgress : null;
           return (
+            // Each card in its station's own pastel, so it's clear at a
+            // glance whose pile it is.
             <div
               key={seq}
-              className="flex min-w-[220px] flex-1 basis-0 items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5"
+              className="station-pastel flex min-w-[220px] flex-1 basis-0 items-center gap-3 rounded-lg border border-[var(--border)] px-3 py-2.5"
+              style={{ background: stationColor(seq)?.pastel ?? "var(--surface)" }}
             >
               <span
                 className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[13px] font-extrabold"

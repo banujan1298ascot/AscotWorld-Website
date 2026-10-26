@@ -16,6 +16,9 @@ import { useEffect, useSyncExternalStore, type CSSProperties } from "react";
 
 export interface StationColor {
   name: string;
+  /** The station's pastel — the `--station-N` token in globals.css, the same
+   *  colour its pages sit on. Pair with the `station-pastel` class for ink. */
+  pastel: string;
   /** Solid shade for markers; white text sits on it. */
   dot: string;
   /** Text colour on `dot` — dark on the light ones (yellow, sky blue). */
@@ -23,13 +26,13 @@ export interface StationColor {
 }
 
 export const STATION_COLORS: Record<number, StationColor> = {
-  1: { name: "Orange", dot: "#f28c28", dotInk: "#ffffff" },
-  2: { name: "Purple", dot: "#8b5cf6", dotInk: "#ffffff" },
-  3: { name: "Blue", dot: "#2563eb", dotInk: "#ffffff" },
-  4: { name: "Red", dot: "#dc2626", dotInk: "#ffffff" },
-  5: { name: "Sky blue", dot: "#38bdf8", dotInk: "#0b2533" },
-  6: { name: "Yellow", dot: "#facc15", dotInk: "#2b2300" },
-  7: { name: "Green", dot: "#16a34a", dotInk: "#ffffff" },
+  1: { name: "Orange", pastel: "var(--station-1)", dot: "#f28c28", dotInk: "#ffffff" },
+  2: { name: "Purple", pastel: "var(--station-2)", dot: "#8b5cf6", dotInk: "#ffffff" },
+  3: { name: "Blue", pastel: "var(--station-3)", dot: "#2563eb", dotInk: "#ffffff" },
+  4: { name: "Red", pastel: "var(--station-4)", dot: "#dc2626", dotInk: "#ffffff" },
+  5: { name: "Sky blue", pastel: "var(--station-5)", dot: "#38bdf8", dotInk: "#0b2533" },
+  6: { name: "Yellow", pastel: "var(--station-6)", dot: "#facc15", dotInk: "#2b2300" },
+  7: { name: "Green", pastel: "var(--station-7)", dot: "#16a34a", dotInk: "#ffffff" },
 };
 
 export function stationColor(sequence: number | null | undefined): StationColor | undefined {

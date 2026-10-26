@@ -53,7 +53,7 @@ const BESPOKE_STAGES = [
   // Each of Checks 2-4 only takes one kind of operator (`operatorRole`).
   {
     sequenceNumber: 2,
-    name: "Order/Calculation Check",
+    name: "Order Processing",
     failAuthority: false,
     isTerminalReleaseStage: false,
     supervised: false,
@@ -61,7 +61,7 @@ const BESPOKE_STAGES = [
   },
   {
     sequenceNumber: 3,
-    name: "Raw Material Picking",
+    name: "Dispensary",
     failAuthority: false,
     isTerminalReleaseStage: false,
     supervised: false,
@@ -72,14 +72,14 @@ const BESPOKE_STAGES = [
   // themselves. See `supervised` in the stage_definitions schema.
   {
     sequenceNumber: 4,
-    name: "Supervisor Material Check",
+    name: "Bespoke Lab",
     failAuthority: true,
     isTerminalReleaseStage: false,
     supervised: true,
     operatorRole: "bespoke_production",
   },
   { sequenceNumber: 5, name: "Production Check", failAuthority: true, isTerminalReleaseStage: false, supervised: false },
-  { sequenceNumber: 6, name: "Final QA Release", failAuthority: true, isTerminalReleaseStage: true, supervised: false },
+  { sequenceNumber: 6, name: "Releasor", failAuthority: true, isTerminalReleaseStage: true, supervised: false },
   { sequenceNumber: 7, name: "Warehouse", failAuthority: false, isTerminalReleaseStage: false, supervised: false },
 ];
 
