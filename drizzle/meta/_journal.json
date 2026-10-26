@@ -71,6 +71,13 @@
       "when": 1790898576098,
       "tag": "0009_bent_colossus",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793054314052,
+      "tag": "0010_legal_captain_flint",
+      "breakpoints": true
     }
   ]
 }

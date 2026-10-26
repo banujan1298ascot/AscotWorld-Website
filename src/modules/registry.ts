@@ -4,6 +4,7 @@ import {
   CalendarBlank,
   ChartLineUp,
   ChatCircleDots,
+  FileText,
   Flask,
   ListChecks,
   SquaresFour,
@@ -154,6 +155,22 @@ export const MODULES: PortalModule[] = [
     roles: ["admin", "qa", "viewer"],
     group: "operations",
     order: 5,
+    enabled: true,
+    showOnDashboard: true,
+    showInBottomNav: false,
+  },
+  {
+    id: "worksheets",
+    label: "Worksheets",
+    description: "Approved and archived worksheets (BMRs) for every product.",
+    href: "/worksheets",
+    icon: FileText,
+    // Everyone can view and download; uploading and moving them is for the
+    // people an admin gives access to — checked per person, not by role (see
+    // src/server/worksheets/validation.ts).
+    roles: "all",
+    group: "operations",
+    order: 6,
     enabled: true,
     showOnDashboard: true,
     showInBottomNav: false,
