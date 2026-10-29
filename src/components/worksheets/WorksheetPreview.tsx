@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowSquareOut,
   DownloadSimple,
@@ -28,6 +28,13 @@ import { downloadWorksheetFile, type Worksheet } from "@/lib/worksheets";
 
 type Kind = "pdf" | "docx" | "sheet" | "unsupported";
 
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 4;
+/** One click of a zoom button, or Ctrl + / Ctrl −. */
+const ZOOM_STEP = 1.25;
+
+const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(z * 100) / 100));
+
 function kindOf(worksheet: Worksheet): Kind {
   const ext = fileExtension(worksheet.fileName);
   if (ext === "pdf") return "pdf";
@@ -52,6 +59,61 @@ export function WorksheetPreview({
   const [blob, setBlob] = useState<Blob | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const zoomRef = useRef(1);
+  /** Where the zoom was centred — the point under the mouse, or the middle
+   *  of the view — as a fraction across the zoomed content
+   *  (`[data-zoom-target]`), so that same spot of the worksheet can be put
+   *  back under it once the new size is laid out. */
+  const anchorRef = useRef<{ fx: number; fy: number; clientX: number; clientY: number } | null>(null);
+
+  const zoomTo = useCallback((next: number, at?: { clientX: number; clientY: number }) => {
+    const scroller = scrollRef.current;
+    const to = clampZoom(next);
+    if (!scroller || to === zoomRef.current) return;
+    const target = scroller.querySelector<HTMLElement>("[data-zoom-target]");
+    if (target) {
+      const view = scroller.getBoundingClientRect();
+      const clientX = at ? at.clientX : view.left + view.width / 2;
+      const clientY = at ? at.clientY : view.top + view.height / 2;
+      const rect = target.getBoundingClientRect();
+      anchorRef.current = {
+        fx: (clientX - rect.left) / Math.max(1, rect.width),
+        fy: (clientY - rect.top) / Math.max(1, rect.height),
+        clientX,
+        clientY,
+      };
+    }
+    zoomRef.current = to;
+    setZoom(to);
+  }, []);
+
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current;
+    const anchor = anchorRef.current;
+    const target = scroller?.querySelector<HTMLElement>("[data-zoom-target]");
+    anchorRef.current = null;
+    if (!scroller || !anchor || !target) return;
+    const rect = target.getBoundingClientRect();
+    scroller.scrollLeft += rect.left + anchor.fx * rect.width - anchor.clientX;
+    scroller.scrollTop += rect.top + anchor.fy * rect.height - anchor.clientY;
+  }, [zoom]);
+
+  // Ctrl + scroll (or a trackpad pinch, which browsers send the same way)
+  // zooms the worksheet instead of the whole page. A wheel notch is about
+  // 25%; a pinch moves in small, smooth steps.
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    function onWheel(e: WheelEvent) {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const delta = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+      zoomTo(zoomRef.current * Math.exp(-delta * 0.0022), e);
+    }
+    scroller.addEventListener("wheel", onWheel, { passive: false });
+    return () => scroller.removeEventListener("wheel", onWheel);
+  }, [zoomTo]);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -80,7 +142,7 @@ export function WorksheetPreview({
     window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
 
-  const zoomable = kind === "pdf" || kind === "docx";
+  const zoomable = kind !== "unsupported";
 
   return (
     <dialog
@@ -89,6 +151,15 @@ export function WorksheetPreview({
       onCancel={(e) => {
         e.preventDefault();
         onClose();
+      }}
+      onKeyDown={(e) => {
+        // Ctrl + / − / 0 zoom the worksheet rather than the browser page.
+        if (!zoomable || (!e.ctrlKey && !e.metaKey)) return;
+        if (e.key === "=" || e.key === "+") zoomTo(zoomRef.current * ZOOM_STEP);
+        else if (e.key === "-") zoomTo(zoomRef.current / ZOOM_STEP);
+        else if (e.key === "0") zoomTo(1);
+        else return;
+        e.preventDefault();
       }}
       className="m-auto flex h-[min(92dvh,1100px)] w-[min(78rem,calc(100vw-1rem))] max-w-none flex-col overflow-hidden rounded-lg
         border border-[var(--border)] bg-[var(--surface)] p-0 text-foreground shadow-[var(--shadow-overlay)]
@@ -110,20 +181,25 @@ export function WorksheetPreview({
               size="sm"
               variant="ghost"
               aria-label="Zoom out"
-              disabled={zoom <= 0.5}
-              onClick={() => setZoom((z) => Math.max(0.5, Math.round((z - 0.25) * 100) / 100))}
+              disabled={zoom <= MIN_ZOOM}
+              onClick={() => zoomTo(zoom / ZOOM_STEP)}
             >
               <MagnifyingGlassMinus size={16} weight="bold" />
             </Button>
-            <span className="w-11 text-center text-xs font-semibold tabular-nums text-[var(--muted-foreground)]">
+            <button
+              type="button"
+              onClick={() => zoomTo(1)}
+              title="Back to fit width (Ctrl + 0). Ctrl + scroll to zoom."
+              className="w-12 cursor-pointer rounded py-1 text-center text-xs font-semibold tabular-nums text-[var(--muted-foreground)] hover:bg-[var(--surface-sunken)] hover:text-foreground"
+            >
               {Math.round(zoom * 100)}%
-            </span>
+            </button>
             <Button
               size="sm"
               variant="ghost"
               aria-label="Zoom in"
-              disabled={zoom >= 3}
-              onClick={() => setZoom((z) => Math.min(3, Math.round((z + 0.25) * 100) / 100))}
+              disabled={zoom >= MAX_ZOOM}
+              onClick={() => zoomTo(zoom * ZOOM_STEP)}
             >
               <MagnifyingGlassPlus size={16} weight="bold" />
             </Button>
@@ -151,7 +227,11 @@ export function WorksheetPreview({
         </p>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto bg-[var(--surface-sunken)]">
+      <div
+        ref={scrollRef}
+        data-preview-scroll
+        className="min-h-0 flex-1 overflow-auto overscroll-contain bg-[var(--surface-sunken)]"
+      >
         {kind === "unsupported" ? (
           <div className="mx-auto max-w-md px-6 py-16 text-center">
             <p className="text-sm font-bold">This file can&apos;t be previewed here</p>
@@ -178,7 +258,7 @@ export function WorksheetPreview({
         ) : kind === "docx" ? (
           <DocxView blob={blob} zoom={zoom} />
         ) : (
-          <SheetView blob={blob} />
+          <SheetView blob={blob} zoom={zoom} />
         )}
       </div>
     </dialog>
@@ -195,18 +275,98 @@ function RenderError({ message }: { message: string }) {
   );
 }
 
-/** Every page of a PDF, fitted to the window's width (times `zoom`) and
- *  drawn sharp on high-density screens. */
+/** Sharpest a page is drawn: big enough for any zoom on a 2x screen, and
+ *  under the canvas limit phones and tablets enforce. */
+const MAX_PAGE_PIXELS = 8_000_000;
+/** Pages out of view are kept at a lower resolution, so a long BMR zoomed
+ *  right in doesn't hold every page at full size in memory. */
+const OFFSCREEN_PAGE_PIXELS = 1_500_000;
+
+interface PdfPage {
+  page: import("pdfjs-dist").PDFPageProxy;
+  wrapper: HTMLDivElement;
+  /** Scale that fits the window's width at 100% zoom. */
+  fit: number;
+  /** The PDF's own page size. */
+  baseWidth: number;
+  baseHeight: number;
+  /** The scale it was last drawn at (0 = not yet). */
+  rendered: number;
+  visible: boolean;
+}
+
+/**
+ * Every page of a PDF, fitted to the window's width. Zooming only changes
+ * the pages' CSS size (the `--pdf-zoom` variable), so it's instant however
+ * fast the wheel turns; once zooming stops, the pages on screen are redrawn
+ * sharp at the new size, and pages scrolled into view later catch up as
+ * they appear.
+ */
 function PdfView({ blob, zoom }: { blob: Blob; zoom: number }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const zoomRef = useRef(zoom);
+  const redrawRef = useRef<() => void>(() => {});
   const [error, setError] = useState<string | null>(null);
   const [pageCount, setPageCount] = useState<number | null>(null);
 
+  useLayoutEffect(() => {
+    zoomRef.current = zoom;
+    containerRef.current?.style.setProperty("--pdf-zoom", String(zoom));
+    const settle = window.setTimeout(() => redrawRef.current(), 180);
+    return () => window.clearTimeout(settle);
+  }, [zoom]);
+
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    const scroller = container?.closest<HTMLElement>("[data-preview-scroll]");
+    if (!container || !scroller) return;
     let cancelled = false;
+    let observer: IntersectionObserver | undefined;
     let destroy: (() => void) | undefined;
+    const pages: PdfPage[] = [];
+    let drawing = false;
+    let drawAgain = false;
+
+    /** Draws each page whose resolution is off for its zoom and whether it's
+     *  on screen — pages in view first. One page at a time; a request that
+     *  comes in meanwhile starts a fresh pass once the current page is done. */
+    async function redraw() {
+      if (drawing) {
+        drawAgain = true;
+        return;
+      }
+      drawing = true;
+      try {
+        do {
+          drawAgain = false;
+          const ratio = Math.min(window.devicePixelRatio || 1, 2);
+          const order = [...pages].sort((a, b) => Number(b.visible) - Number(a.visible));
+          for (const p of order) {
+            if (cancelled) return;
+            const cap = p.visible ? MAX_PAGE_PIXELS : OFFSCREEN_PAGE_PIXELS;
+            const want = Math.min(p.fit * zoomRef.current * ratio, Math.sqrt(cap / (p.baseWidth * p.baseHeight)));
+            if (p.rendered && Math.abs(p.rendered - want) / want < 0.15) continue;
+
+            const viewport = p.page.getViewport({ scale: want });
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.floor(viewport.width);
+            canvas.height = Math.floor(viewport.height);
+            canvas.className = "block h-full w-full";
+            await p.page.render({ canvas, viewport }).promise;
+            if (cancelled) return;
+            // Swap in the new drawing only once it's finished — no blank flash.
+            const old = p.wrapper.querySelector("canvas");
+            p.wrapper.replaceChildren(canvas);
+            if (old) old.width = 0;
+            p.rendered = want;
+            if (drawAgain) break;
+          }
+        } while (drawAgain && !cancelled);
+      } finally {
+        drawing = false;
+      }
+    }
+    redrawRef.current = () => void redraw().catch(() => {});
 
     (async () => {
       const pdfjs = await import("pdfjs-dist");
@@ -223,44 +383,57 @@ function PdfView({ blob, zoom }: { blob: Blob; zoom: number }) {
       setPageCount(pdf.numPages);
 
       container.replaceChildren();
-      const available = Math.max(320, container.clientWidth - 32);
-      const ratio = window.devicePixelRatio || 1;
+      const available = Math.max(320, scroller.clientWidth - 32);
+      observer = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            const p = pages.find((x) => x.wrapper === entry.target);
+            if (p) p.visible = entry.isIntersecting;
+          }
+          redrawRef.current();
+        },
+        { root: scroller, rootMargin: "50% 0px" },
+      );
+
       for (let n = 1; n <= pdf.numPages; n++) {
         const page = await pdf.getPage(n);
         if (cancelled) return;
         const base = page.getViewport({ scale: 1 });
-        const scale = Math.min(available / base.width, 1.6) * zoom;
-        const viewport = page.getViewport({ scale: scale * ratio });
-
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.floor(viewport.width);
-        canvas.height = Math.floor(viewport.height);
-        canvas.style.width = `${Math.floor(viewport.width / ratio)}px`;
-        canvas.style.height = `${Math.floor(viewport.height / ratio)}px`;
-        canvas.className = "mx-auto mb-4 block bg-white shadow-md";
-        canvas.setAttribute("aria-label", `Page ${n} of ${pdf.numPages}`);
-        container.appendChild(canvas);
-        await page.render({ canvas, viewport }).promise;
+        const fit = Math.min(available / base.width, 1.6);
+        const wrapper = document.createElement("div");
+        wrapper.className = "mx-auto mb-4 bg-white shadow-md";
+        wrapper.style.width = `calc(${base.width * fit}px * var(--pdf-zoom))`;
+        wrapper.style.height = `calc(${base.height * fit}px * var(--pdf-zoom))`;
+        wrapper.setAttribute("role", "img");
+        wrapper.setAttribute("aria-label", `Page ${n} of ${pdf.numPages}`);
+        container.appendChild(wrapper);
+        pages.push({ page, wrapper, fit, baseWidth: base.width, baseHeight: base.height, rendered: 0, visible: n <= 2 });
+        observer.observe(wrapper);
       }
+      redrawRef.current();
     })().catch((err: unknown) => {
       if (!cancelled) setError(err instanceof Error ? `Couldn't show this PDF: ${err.message}` : "Couldn't show this PDF.");
     });
 
     return () => {
       cancelled = true;
+      observer?.disconnect();
+      redrawRef.current = () => {};
       destroy?.();
     };
-  }, [blob, zoom]);
+  }, [blob]);
 
   if (error) return <RenderError message={error} />;
   return (
-    <div className="px-4 py-4">
+    // As wide as the widest page once zoomed past the window, so it scrolls
+    // sideways instead of cutting the page off.
+    <div className="w-max min-w-full px-4 py-4">
       {pageCount ? (
         <p className="mb-2 text-center text-xs font-semibold text-[var(--muted-foreground)]">
           {pageCount} {pageCount === 1 ? "page" : "pages"}
         </p>
       ) : null}
-      <div ref={containerRef} />
+      <div ref={containerRef} data-zoom-target className="mx-auto w-max" />
     </div>
   );
 }
@@ -307,7 +480,7 @@ function DocxView({ blob, zoom }: { blob: Blob; zoom: number }) {
   if (error) return <RenderError message={error} />;
   return (
     <div ref={outerRef} className="docx-preview-host">
-      <div className="text-black" style={{ zoom: fit * zoom }}>
+      <div data-zoom-target className="mx-auto w-max text-black" style={{ zoom: fit * zoom }}>
         <div ref={containerRef} />
       </div>
     </div>
@@ -316,7 +489,7 @@ function DocxView({ blob, zoom }: { blob: Blob; zoom: number }) {
 
 /** Each sheet of a workbook as a plain table — values only, so nothing in
  *  the file is ever run or inserted as HTML. */
-function SheetView({ blob }: { blob: Blob }) {
+function SheetView({ blob, zoom }: { blob: Blob; zoom: number }) {
   const [sheets, setSheets] = useState<{ name: string; rows: string[][] }[] | null>(null);
   const [active, setActive] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -370,7 +543,7 @@ function SheetView({ blob }: { blob: Blob }) {
         {sheet.rows.length === 0 ? (
           <p className="p-6 text-center text-sm text-[var(--muted-foreground)]">This sheet is empty.</p>
         ) : (
-          <table className="border-collapse bg-white text-[13px] text-black">
+          <table data-zoom-target className="border-collapse bg-white text-[13px] text-black" style={{ zoom }}>
             <tbody>
               {sheet.rows.map((row, r) => (
                 <tr key={r}>

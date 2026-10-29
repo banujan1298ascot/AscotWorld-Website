@@ -31,7 +31,10 @@ only when needed:
 - **Old Word .doc** — can't be read in a browser; the viewer offers the
   download instead.
 
-PDFs and Word documents fit the window's width, with zoom buttons. Archived
+PDFs and Word documents fit the window's width. Zoom with the buttons, Ctrl +
+scroll (or a trackpad pinch) — centred on the mouse — or Ctrl + / − / 0. PDF
+zoom resizes instantly and redraws the pages on screen sharp once it stops;
+pages out of view are kept at lower resolution to save memory. Archived
 versions carry a warning that they're not the version in use.
 
 ## Schema
