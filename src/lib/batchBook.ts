@@ -18,6 +18,7 @@ import { apiFetch } from "./apiClient";
 import { fetchCached, readCached } from "./apiCache";
 import { useAuth } from "./auth";
 import type { DosageForm, PackUnit } from "./products";
+import type { WorksheetGenerateResult } from "./worksheets";
 
 export type BatchType = "A" | "B" | "C" | "D" | "M";
 export type BatchBookStatus = "DRAFT" | "CONFIRMED" | "IN_PROGRESS" | "COMPLETED" | "ON_HOLD" | "FAILED";
@@ -40,6 +41,8 @@ export interface BatchRecord {
   quantity: string | null;
   unit: string | null;
   plannedManufactureDate: string | null;
+  /** The stock's expiry date — filled into the batch's generated worksheet. */
+  expiryDate: string | null;
   /** Flagged urgent at entry — amber at every MES station. */
   urgent: boolean;
   /** The market the stock is for; null on batches entered before this was
@@ -78,6 +81,7 @@ export interface BatchDraftInput {
   quantity?: string;
   unit?: string;
   plannedManufactureDate?: string;
+  expiryDate?: string;
   urgent?: boolean;
   destination?: BatchDestination;
 }
@@ -96,6 +100,7 @@ export type BatchPatch = Partial<
     | "quantity"
     | "unit"
     | "plannedManufactureDate"
+    | "expiryDate"
     | "urgent"
     | "destination"
   >
@@ -260,11 +265,18 @@ export function useBatchBook(statusFilter?: BatchBookStatus) {
     [user, refresh],
   );
 
+  /** Confirms the batch; the server then generates its worksheet, and
+   *  says how that went. */
   const confirmBatch = useCallback(
-    async (id: string) => {
+    async (id: string): Promise<{ batch: BatchRecord; worksheet: WorksheetGenerateResult }> => {
       if (!user) throw new Error("Not signed in.");
-      await apiFetch(`/api/batch-book/${id}/confirm`, user.id, { method: "POST" });
+      const result = await apiFetch<{ batch: BatchRecord; worksheet: WorksheetGenerateResult }>(
+        `/api/batch-book/${id}/confirm`,
+        user.id,
+        { method: "POST" },
+      );
       await refresh();
+      return result;
     },
     [user, refresh],
   );

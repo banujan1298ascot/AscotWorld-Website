@@ -70,6 +70,7 @@ export const packUnitEnum = pgEnum("pack_unit", ["tablets", "capsules", "ml", "g
 
 export const labelPrintKindEnum = pgEnum("label_print_kind", ["FIRST_PRINT", "REPRINT"]);
 
-/** A worksheet (BMR): still uploading, the approved version in use, or an
- *  archived older one. See worksheets. */
-export const worksheetStatusEnum = pgEnum("worksheet_status", ["UPLOADING", "APPROVED", "ARCHIVED"]);
+/** A worksheet (BMR): still uploading, the approved version in use, an
+ *  archived older one, or a copy generated for one batch from an approved
+ *  one. See worksheets. */
+export const worksheetStatusEnum = pgEnum("worksheet_status", ["UPLOADING", "APPROVED", "ARCHIVED", "GENERATED"]);

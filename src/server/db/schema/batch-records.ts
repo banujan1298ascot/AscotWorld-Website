@@ -61,6 +61,9 @@ export const batchRecords = pgTable(
     quantity: numeric("quantity"),
     unit: text("unit"),
     plannedManufactureDate: date("planned_manufacture_date"),
+    /** The stock's expiry date, entered at Check 1 — goes onto the batch's
+     *  generated worksheet. */
+    expiryDate: date("expiry_date"),
 
     /** Flagged urgent at Batch Book entry — shown amber at every MES station. */
     urgent: boolean("urgent").notNull().default(false),

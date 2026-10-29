@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { format } from "date-fns";
 import {
   ArrowCounterClockwise,
   Archive,
   CheckCircle,
   DownloadSimple,
+  FileArrowDown,
   Eye,
   FileText,
   MagnifyingGlass,
@@ -48,19 +50,33 @@ import {
   type WorksheetAccessEntry,
 } from "@/lib/worksheets";
 
-type Tab = "APPROVED" | "ARCHIVED";
+type Tab = "APPROVED" | "ARCHIVED" | "GENERATED";
+
+const TAB_PARAM: Record<string, Tab> = { approved: "APPROVED", archived: "ARCHIVED", generated: "GENERATED" };
+
+export default function WorksheetsRoute() {
+  // useSearchParams (for ?tab=generated) needs a Suspense boundary.
+  return (
+    <Suspense fallback={<Skeleton className="h-48 w-full" />}>
+      <WorksheetsPage />
+    </Suspense>
+  );
+}
 
 /**
  * Worksheets (BMRs) for every product. Approved holds the version in use;
  * when a new version is uploaded the old one moves to Archived, so every
- * version stays on record. Everyone can view and download them; uploading
- * and moving them is for the people an admin gives access to (the senior
+ * version stays on record. Generated holds the copies filled in for each
+ * batch when it's confirmed — made from an approved worksheet, which itself
+ * is never changed. Everyone can view and download them; uploading and
+ * moving them is for the people an admin gives access to (the senior
  * pharmacist and production manager) — the server enforces the same.
  */
-export default function WorksheetsPage() {
+function WorksheetsPage() {
   const { user } = useAuth();
   const { worksheets, canManage, ready, error, refresh } = useWorksheets();
-  const [tab, setTab] = useState<Tab>("APPROVED");
+  const params = useSearchParams();
+  const [tab, setTab] = useState<Tab>(() => TAB_PARAM[params.get("tab") ?? ""] ?? "APPROVED");
   const [search, setSearch] = useState("");
   const [uploading, setUploading] = useState(false);
   const [moving, setMoving] = useState<Worksheet | null>(null);
@@ -72,6 +88,7 @@ export default function WorksheetsPage() {
     () => ({
       APPROVED: worksheets.filter((w) => w.status === "APPROVED").length,
       ARCHIVED: worksheets.filter((w) => w.status === "ARCHIVED").length,
+      GENERATED: worksheets.filter((w) => w.status === "GENERATED").length,
     }),
     [worksheets],
   );
@@ -81,7 +98,9 @@ export default function WorksheetsPage() {
     (w) =>
       w.status === tab &&
       (!query ||
-        [w.productName, w.version, w.reference ?? "", w.fileName].some((field) => field.toLowerCase().includes(query))),
+        [w.productName, w.version, w.reference ?? "", w.fileName, w.batchNumber ?? ""].some((field) =>
+          field.toLowerCase().includes(query),
+        )),
   );
 
   if (!user) return null;
@@ -108,7 +127,7 @@ export default function WorksheetsPage() {
     <>
       <PageHeader
         title="Worksheets"
-        description="Batch manufacturing records (BMRs) for every product. Approved is the version in use; older versions move to Archived when a new one is uploaded."
+        description="Batch manufacturing records (BMRs) for every product. Approved is the version in use; older versions move to Archived when a new one is uploaded. Generated holds each batch's filled-in copy."
         actions={
           <>
             {isAdmin ? (
@@ -145,7 +164,7 @@ export default function WorksheetsPage() {
             className="h-9 pl-8"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Product, version, reference or file…"
+            placeholder="Product, batch, version, reference or file…"
           />
         </label>
       </div>
@@ -171,7 +190,9 @@ export default function WorksheetsPage() {
                 ? "No worksheets match that search"
                 : tab === "APPROVED"
                   ? "No approved worksheets yet"
-                  : "Nothing archived yet"
+                  : tab === "ARCHIVED"
+                    ? "Nothing archived yet"
+                    : "No generated worksheets yet"
             }
             description={
               query
@@ -180,7 +201,9 @@ export default function WorksheetsPage() {
                   ? canManage
                     ? "Upload a product's worksheet and it appears here for everyone."
                     : "Once worksheets are uploaded they'll appear here."
-                  : "When a new version of a worksheet is uploaded, the old one moves here."
+                  : tab === "ARCHIVED"
+                    ? "When a new version of a worksheet is uploaded, the old one moves here."
+                    : "When Check 1 confirms a batch, its worksheet is filled in from the approved one for its product and saved here."
             }
           />
         </Card>
@@ -190,10 +213,11 @@ export default function WorksheetsPage() {
             <table className="w-full min-w-[820px] text-sm">
               <thead>
                 <tr className="border-b border-[var(--border)] text-left text-xs font-bold uppercase tracking-wide text-[var(--muted-foreground)]">
+                  {tab === "GENERATED" ? <th className="px-4 py-2.5">Batch</th> : null}
                   <th className="px-4 py-2.5">Product</th>
-                  <th className="px-4 py-2.5">Version</th>
+                  <th className="px-4 py-2.5">{tab === "GENERATED" ? "From version" : "Version"}</th>
                   <th className="px-4 py-2.5">File</th>
-                  <th className="px-4 py-2.5">Uploaded</th>
+                  <th className="px-4 py-2.5">{tab === "GENERATED" ? "Generated" : "Uploaded"}</th>
                   {tab === "ARCHIVED" ? <th className="px-4 py-2.5">Archived</th> : null}
                   <th className="px-4 py-2.5" />
                 </tr>
@@ -270,6 +294,7 @@ function TabSwitch({
   const options: { value: Tab; label: string; icon: typeof Archive }[] = [
     { value: "APPROVED", label: "Approved", icon: CheckCircle },
     { value: "ARCHIVED", label: "Archived", icon: Archive },
+    { value: "GENERATED", label: "Generated", icon: FileArrowDown },
   ];
   return (
     <div
@@ -320,8 +345,12 @@ function WorksheetRow({
   onMove: () => void;
 }) {
   const archived = worksheet.status === "ARCHIVED";
+  const generated = worksheet.status === "GENERATED";
   return (
     <tr className="border-b border-[var(--border)] align-top last:border-b-0">
+      {generated ? (
+        <td className="whitespace-nowrap px-4 py-3 font-mono text-[13px] font-semibold">{worksheet.batchNumber ?? "—"}</td>
+      ) : null}
       <td className="px-4 py-3">
         <p className="font-semibold text-foreground">{worksheet.productName}</p>
         {worksheet.reference ? (
@@ -334,11 +363,11 @@ function WorksheetRow({
         <button
           type="button"
           onClick={onView}
-          className="inline-flex max-w-[220px] cursor-pointer items-start gap-1.5 text-left text-[var(--primary)] hover:underline"
+          className="inline-flex max-w-[260px] cursor-pointer items-start gap-1.5 text-left text-[var(--primary)] hover:underline"
           title="View it here"
         >
           <FileText size={16} weight="duotone" className="mt-px shrink-0" />
-          <span className="break-all">{worksheet.fileName}</span>
+          <span className="break-words">{worksheet.fileName}</span>
         </button>
         <p className="mt-0.5 pl-[22px] text-xs text-[var(--muted-foreground)]">{formatFileSize(worksheet.sizeBytes)}</p>
       </td>
@@ -364,7 +393,8 @@ function WorksheetRow({
             <DownloadSimple size={15} weight="bold" />
             Download
           </Button>
-          {canManage ? (
+          {/* A generated copy belongs to its batch — it never moves. */}
+          {canManage && !generated ? (
             <Button size="sm" variant="secondary" onClick={onMove}>
               {archived ? <ArrowCounterClockwise size={15} weight="bold" /> : <Archive size={15} weight="bold" />}
               {archived ? "Restore" : "Archive"}

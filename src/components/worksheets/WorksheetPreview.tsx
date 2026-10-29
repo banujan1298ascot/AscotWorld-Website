@@ -173,6 +173,7 @@ export function WorksheetPreview({
           <p className="truncate text-xs text-[var(--muted-foreground)]">
             {[worksheet.reference, worksheet.fileName, formatFileSize(worksheet.sizeBytes)].filter(Boolean).join(" · ")}
             {worksheet.status === "ARCHIVED" ? " · Archived — not the version in use" : ""}
+            {worksheet.status === "GENERATED" && worksheet.batchNumber ? ` · Generated for batch ${worksheet.batchNumber}` : ""}
           </p>
         </div>
         {zoomable ? (

@@ -68,3 +68,36 @@ All take the `x-staff-id` header (see the demo-auth note in
 | `PUT /api/worksheets/access` | admin | `{ staffId, allowed }`. |
 
 Rules are unit-tested in `src/server/worksheets/validation.test.ts`.
+
+## Generated worksheets
+
+When Check 1 confirms a batch, the batch's worksheet is generated
+(`src/server/worksheets/generate.ts`, called from
+`POST /api/batch-book/:id/confirm`):
+
+1. **Pick the master** (`matching.ts`): the approved worksheet whose product
+   name, file name or reference contains every word of the medicine name, its
+   strength ("20mg" — not "120mg") and its type ("tablet", "capsule", …). A
+   pack count in the file name ("100s") must match the batch's pack size;
+   ties go to the newest upload.
+2. **Fill a copy** (`fill.ts` plans, pdf-lib draws): pdf.js reads where each
+   label sits, and the value goes into the blank beside it — an underscore
+   run, or for dates the day / month / year between the dots of
+   `__ . __ . ____`. Labels: BATCH No. (every page), Batch size / Quantity
+   (`____ x ____ capsules` gets quantity × pack size), Pack size, Date
+   manufactured, Expiry date. A summary line goes across the top of page 1,
+   and every page gets a "generated copy" footer naming the master, version,
+   date and person.
+3. **Save it** as a `GENERATED` worksheet with `batch_id` and
+   `source_worksheet_id`, shown in the **Generated** tab. Generated copies
+   can't be approved, archived or edited; the master is only ever read.
+
+The confirm response carries `worksheet` — `{ status: "generated", filled,
+notFound, … }`, or `no-match` / `unsupported` (Word/Excel masters can't be
+filled yet) / `failed` with a message — and the Batch Book shows it. A batch
+whose worksheet couldn't be made stays confirmed; **Worksheet** on its row
+(`POST /api/worksheets/generate { batchId }`) generates it later, making a
+new copy each time.
+
+The batch's manufacture date and new **expiry date** (`batch_records.expiry_date`,
+entered at Check 1, must be after manufacture) feed the dates.

@@ -16,6 +16,7 @@ import {
   canCreateDraft,
   canEditBatch,
   canEditFields,
+  checkBatchDates,
   checkPriorityAndDestination,
   checkProductFields,
   type ActingStaff,
@@ -38,6 +39,7 @@ export interface CreateDraftInput {
   quantity?: string | null;
   unit?: string | null;
   plannedManufactureDate?: string | null;
+  expiryDate?: string | null;
   urgent?: boolean;
   destination?: BatchRecordRow["destination"];
   customFields?: Record<string, unknown>;
@@ -68,6 +70,11 @@ export async function createDraft(input: CreateDraftInput, actingStaff: ActingSt
   if (!fields.ok) throw new ApiError(422, fields.error);
   const product = checkProductFields(input);
   if (!product.ok) throw new ApiError(422, product.error);
+  const dates = checkBatchDates({
+    plannedManufactureDate: input.plannedManufactureDate || null,
+    expiryDate: input.expiryDate || null,
+  });
+  if (!dates.ok) throw new ApiError(422, dates.error);
 
   const medicineName = trimmedOrNull(input.medicineName);
   const strength = trimmedOrNull(input.strength);
@@ -86,7 +93,8 @@ export async function createDraft(input: CreateDraftInput, actingStaff: ActingSt
       packUnit: input.packUnit ?? null,
       quantity: input.quantity ?? null,
       unit: input.unit ?? null,
-      plannedManufactureDate: input.plannedManufactureDate ?? null,
+      plannedManufactureDate: input.plannedManufactureDate || null,
+      expiryDate: input.expiryDate || null,
       urgent: input.urgent ?? false,
       destination: input.destination ?? null,
       customFields: input.customFields ?? {},
@@ -113,6 +121,7 @@ export interface UpdateBatchInput {
       | "quantity"
       | "unit"
       | "plannedManufactureDate"
+      | "expiryDate"
       | "urgent"
       | "destination"
       | "customFields"
@@ -149,6 +158,12 @@ export async function updateBatch(
       packUnit: merged.packUnit,
     });
     if (!product.ok) throw new ApiError(422, product.error);
+    // Checked on the result, so moving one date can't leave them crossed.
+    const dates = checkBatchDates({
+      plannedManufactureDate: merged.plannedManufactureDate || null,
+      expiryDate: merged.expiryDate || null,
+    });
+    if (!dates.ok) throw new ApiError(422, dates.error);
 
     // Editing the product's parts rebuilds its full name, so the rest of the
     // portal (and the audit trail) sees the same change.

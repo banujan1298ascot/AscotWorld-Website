@@ -1,4 +1,5 @@
-import { customType, index, integer, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { customType, index, integer, pgTable, primaryKey, text, timestamp, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { batchRecords } from "./batch-records";
 import { worksheetStatusEnum } from "./enums";
 import { staff } from "./staff";
 
@@ -14,6 +15,11 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
  * version stays on record. UPLOADING rows are uploads still in flight
  * (their file arrives in pieces — see worksheet_file_chunks) and are never
  * listed.
+ *
+ * GENERATED rows are copies filled in for one batch (its number, dates,
+ * quantity) from an approved worksheet when the batch is confirmed — see
+ * src/server/worksheets/generate.ts. The approved master itself is never
+ * changed; the copy records which master and which batch it came from.
  */
 export const worksheets = pgTable(
   "worksheets",
@@ -40,8 +46,14 @@ export const worksheets = pgTable(
     /** Why it was archived — "Replaced by version 5" when a new upload
      *  replaced it, or whatever the person moving it wrote. */
     archivedNote: text("archived_note"),
+    /** For a generated copy: the batch it was filled in for, and the
+     *  approved worksheet it was made from. */
+    batchId: uuid("batch_id").references(() => batchRecords.id, { onDelete: "restrict" }),
+    sourceWorksheetId: uuid("source_worksheet_id").references((): AnyPgColumn => worksheets.id, {
+      onDelete: "restrict",
+    }),
   },
-  (table) => [index("worksheets_status_idx").on(table.status)],
+  (table) => [index("worksheets_status_idx").on(table.status), index("worksheets_batch_id_idx").on(table.batchId)],
 );
 
 /**

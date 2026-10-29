@@ -78,6 +78,13 @@
       "when": 1793054314052,
       "tag": "0010_legal_captain_flint",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793314215023,
+      "tag": "0011_great_klaw",
+      "breakpoints": true
     }
   ]
 }

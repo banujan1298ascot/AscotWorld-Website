@@ -116,6 +116,9 @@ export type WorksheetMove = "ARCHIVED" | "APPROVED";
 export function checkMove(current: string, to: unknown): Result<WorksheetMove> {
   if (to !== "ARCHIVED" && to !== "APPROVED") return { ok: false, error: "Move a worksheet to Approved or Archived." };
   if (current === "UPLOADING") return { ok: false, error: "That worksheet hasn't finished uploading." };
+  if (current === "GENERATED") {
+    return { ok: false, error: "A generated worksheet belongs to its batch — it can't be approved or archived." };
+  }
   if (current === to) {
     return { ok: false, error: to === "ARCHIVED" ? "That worksheet is already archived." : "That worksheet is already approved." };
   }

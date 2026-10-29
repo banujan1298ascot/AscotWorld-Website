@@ -20,7 +20,7 @@ export interface Worksheet {
   version: string;
   reference: string | null;
   notes: string | null;
-  status: "APPROVED" | "ARCHIVED";
+  status: "APPROVED" | "ARCHIVED" | "GENERATED";
   fileName: string;
   contentType: string;
   sizeBytes: number;
@@ -32,7 +32,25 @@ export interface Worksheet {
   archivedByName: string | null;
   archivedAt: string | null;
   archivedNote: string | null;
+  /** For a generated copy: its batch, and the approved worksheet it was
+   *  made from. */
+  batchId: string | null;
+  batchNumber: string | null;
+  sourceWorksheetId: string | null;
 }
+
+/** Mirrors GenerateResult in src/server/worksheets/generate.ts. */
+export type WorksheetGenerateResult =
+  | {
+      status: "generated";
+      worksheetId: string;
+      fileName: string;
+      sourceFileName: string;
+      sourceVersion: string;
+      filled: string[];
+      notFound: string[];
+    }
+  | { status: "no-match" | "unsupported" | "failed"; message: string };
 
 export interface WorksheetDetails {
   productName: string;
@@ -145,6 +163,15 @@ export function moveWorksheet(staffId: string, id: string, to: "ARCHIVED" | "APP
     method: "PATCH",
     body: JSON.stringify({ status: to, note }),
   });
+}
+
+/** Generates (again) the worksheet for a confirmed batch. */
+export async function generateWorksheet(staffId: string, batchId: string): Promise<WorksheetGenerateResult> {
+  const { worksheet } = await apiFetch<{ worksheet: WorksheetGenerateResult }>("/api/worksheets/generate", staffId, {
+    method: "POST",
+    body: JSON.stringify({ batchId }),
+  });
+  return worksheet;
 }
 
 export function fetchWorksheetAccess(staffId: string) {

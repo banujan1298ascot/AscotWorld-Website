@@ -8,7 +8,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { ApiError } from "../apiError";
 import type { ActingStaff } from "../actingStaff";
 import { db } from "../db/client";
-import { staff, worksheetEditors, worksheetFileChunks, worksheets } from "../db/schema";
+import { batchRecords, staff, worksheetEditors, worksheetFileChunks, worksheets } from "../db/schema";
 import {
   canGrantWorksheetAccess,
   canManageWorksheets,
@@ -25,7 +25,7 @@ export interface WorksheetView {
   version: string;
   reference: string | null;
   notes: string | null;
-  status: "APPROVED" | "ARCHIVED";
+  status: "APPROVED" | "ARCHIVED" | "GENERATED";
   fileName: string;
   contentType: string;
   sizeBytes: number;
@@ -37,6 +37,10 @@ export interface WorksheetView {
   archivedByName: string | null;
   archivedAt: string | null;
   archivedNote: string | null;
+  /** For a generated copy: its batch, and the approved worksheet it came from. */
+  batchId: string | null;
+  batchNumber: string | null;
+  sourceWorksheetId: string | null;
 }
 
 function orThrow<T>(result: Result<T>, status = 422): T {
@@ -64,27 +68,30 @@ async function requireManager(actor: ActingStaff): Promise<void> {
 const uploader = alias(staff, "uploader");
 const archiver = alias(staff, "archiver");
 
-/** Every approved and archived worksheet, newest first. */
+/** Every approved, archived and generated worksheet, by product then
+ *  newest first. */
 export async function listWorksheets(): Promise<WorksheetView[]> {
   const rows = await db
     .select({
       worksheet: worksheets,
       uploadedByName: uploader.name,
       archivedByName: archiver.name,
+      batchNumber: batchRecords.batchNumber,
     })
     .from(worksheets)
     .innerJoin(uploader, eq(uploader.id, worksheets.uploadedBy))
     .leftJoin(archiver, eq(archiver.id, worksheets.archivedBy))
-    .where(inArray(worksheets.status, ["APPROVED", "ARCHIVED"]))
+    .leftJoin(batchRecords, eq(batchRecords.id, worksheets.batchId))
+    .where(inArray(worksheets.status, ["APPROVED", "ARCHIVED", "GENERATED"]))
     .orderBy(asc(worksheets.productName), desc(worksheets.uploadedAt));
 
-  return rows.map(({ worksheet: w, uploadedByName, archivedByName }) => ({
+  return rows.map(({ worksheet: w, uploadedByName, archivedByName, batchNumber }) => ({
     id: w.id,
     productName: w.productName,
     version: w.version,
     reference: w.reference,
     notes: w.notes,
-    status: w.status as "APPROVED" | "ARCHIVED",
+    status: w.status as WorksheetView["status"],
     fileName: w.fileName,
     contentType: w.contentType,
     sizeBytes: w.sizeBytes,
@@ -96,6 +103,9 @@ export async function listWorksheets(): Promise<WorksheetView[]> {
     archivedByName: archivedByName ?? null,
     archivedAt: w.archivedAt?.toISOString() ?? null,
     archivedNote: w.archivedNote,
+    batchId: w.batchId,
+    batchNumber: batchNumber ?? null,
+    sourceWorksheetId: w.sourceWorksheetId,
   }));
 }
 

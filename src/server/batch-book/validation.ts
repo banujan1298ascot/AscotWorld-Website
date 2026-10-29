@@ -94,6 +94,7 @@ const BATCH_BOOK_FIELDS = new Set([
   "quantity",
   "unit",
   "plannedManufactureDate",
+  "expiryDate",
   "urgent",
   "destination",
   "customFields",
@@ -147,6 +148,27 @@ export function checkProductFields(fields: {
     if (!allowed.includes(unit as PackUnit)) {
       return { ok: false, error: `A ${dosageFormInfo(form as DosageForm)?.label.toLowerCase()} pack is measured in ${allowed.join(" or ")}.` };
     }
+  }
+  return { ok: true };
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Manufacture and expiry dates, where given, are real dates
+ *  (YYYY-MM-DD), and the stock can't expire before it's made. */
+export function checkBatchDates(fields: { plannedManufactureDate?: unknown; expiryDate?: unknown }): Verdict {
+  const valid = (value: unknown) =>
+    value === undefined ||
+    value === null ||
+    (typeof value === "string" && ISO_DATE.test(value) && !Number.isNaN(Date.parse(value)));
+  if (!valid(fields.plannedManufactureDate)) return { ok: false, error: "Manufacture date must be a date (YYYY-MM-DD)." };
+  if (!valid(fields.expiryDate)) return { ok: false, error: "Expiry date must be a date (YYYY-MM-DD)." };
+  if (
+    typeof fields.plannedManufactureDate === "string" &&
+    typeof fields.expiryDate === "string" &&
+    fields.expiryDate <= fields.plannedManufactureDate
+  ) {
+    return { ok: false, error: "The expiry date must be after the manufacture date." };
   }
   return { ok: true };
 }

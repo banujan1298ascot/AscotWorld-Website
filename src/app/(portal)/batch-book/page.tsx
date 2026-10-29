@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CheckCircle, PencilSimple, Plus, Warning } from "@phosphor-icons/react/dist/ssr";
+import Link from "next/link";
+import { CheckCircle, FileText, PencilSimple, Plus, Warning } from "@phosphor-icons/react/dist/ssr";
 import { BatchFlags, FAILED_SURFACE } from "@/components/mes/BatchFlags";
 import {
   EMPTY_PRODUCT,
@@ -26,6 +27,7 @@ import {
   Textarea,
 } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
+import { generateWorksheet, type WorksheetGenerateResult } from "@/lib/worksheets";
 import {
   BATCH_BOOK_STATUS_LABELS,
   BATCH_DESTINATIONS,
@@ -90,8 +92,28 @@ export default function BatchBookPage() {
 
   const [creating, setCreating] = useState(false);
   const [editingBatch, setEditingBatch] = useState<BatchRecord | null>(null);
+  /** How generating the last confirmed batch's worksheet went. */
+  const [worksheetNote, setWorksheetNote] = useState<{ batchNumber: string; result: WorksheetGenerateResult } | null>(
+    null,
+  );
+  const [generatingFor, setGeneratingFor] = useState<string | null>(null);
 
   if (!user) return null;
+
+  async function regenerate(batch: BatchRecord) {
+    if (!user || !batch.batchNumber) return;
+    setGeneratingFor(batch.id);
+    try {
+      setWorksheetNote({ batchNumber: batch.batchNumber, result: await generateWorksheet(user.id, batch.id) });
+    } catch (err) {
+      setWorksheetNote({
+        batchNumber: batch.batchNumber,
+        result: { status: "failed", message: err instanceof Error ? err.message : "The worksheet couldn't be generated." },
+      });
+    } finally {
+      setGeneratingFor(null);
+    }
+  }
 
   return (
     <>
@@ -121,6 +143,8 @@ export default function BatchBookPage() {
           <p className="text-sm font-semibold text-[var(--danger)]">{error}</p>
         </Card>
       ) : null}
+
+      {worksheetNote ? <WorksheetNotice {...worksheetNote} onDismiss={() => setWorksheetNote(null)} /> : null}
 
       {!ready ? (
         <div className="grid gap-2">
@@ -190,6 +214,18 @@ export default function BatchBookPage() {
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="flex justify-end gap-1.5">
+                          {batch.batchNumber && can("batchbook.confirm") ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={generatingFor !== null}
+                              onClick={() => void regenerate(batch)}
+                              title="Make this batch's worksheet from the approved one for its product"
+                            >
+                              <FileText size={14} weight="bold" />
+                              {generatingFor === batch.id ? "Generating…" : "Worksheet"}
+                            </Button>
+                          ) : null}
                           {canEditDraft || canEditConfirmed ? (
                             <Button size="sm" variant="ghost" onClick={() => setEditingBatch(batch)}>
                               <PencilSimple size={14} weight="bold" />
@@ -214,7 +250,10 @@ export default function BatchBookPage() {
           onClose={() => setCreating(false)}
           onSubmit={async (input, confirmNow) => {
             const batch = await createDraft(input);
-            if (confirmNow) await confirmBatch(batch.id);
+            if (confirmNow) {
+              const confirmed = await confirmBatch(batch.id);
+              setWorksheetNote({ batchNumber: confirmed.batch.batchNumber ?? "", result: confirmed.worksheet });
+            }
             // Land on the log the batch was actually filed under.
             setBatchType(input.batchType);
             setCreating(false);
@@ -237,7 +276,8 @@ export default function BatchBookPage() {
                   // assigned — a confirmed record can't be edited without a
                   // logged reason.
                   await editBatch(editingBatch.id, patch);
-                  await confirmBatch(editingBatch.id);
+                  const confirmed = await confirmBatch(editingBatch.id);
+                  setWorksheetNote({ batchNumber: confirmed.batch.batchNumber ?? "", result: confirmed.worksheet });
                   setEditingBatch(null);
                 }
               : undefined
@@ -245,6 +285,112 @@ export default function BatchBookPage() {
         />
       ) : null}
     </>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
+/** Manufacture and expiry dates — both go onto the batch's generated
+ *  worksheet. Expiry has to come after manufacture (the server checks too). */
+function BatchDateFields({
+  idPrefix,
+  manufactureDate,
+  onManufactureDateChange,
+  expiryDate,
+  onExpiryDateChange,
+}: {
+  idPrefix: string;
+  manufactureDate: string;
+  onManufactureDateChange: (value: string) => void;
+  expiryDate: string;
+  onExpiryDateChange: (value: string) => void;
+}) {
+  const crossed = Boolean(manufactureDate && expiryDate && expiryDate <= manufactureDate);
+  return (
+    <div className="grid grid-cols-2 gap-3.5">
+      <Field label="Manufacture date" htmlFor={`${idPrefix}-planned-date`}>
+        <Input
+          id={`${idPrefix}-planned-date`}
+          type="date"
+          value={manufactureDate}
+          onChange={(e) => onManufactureDateChange(e.target.value)}
+        />
+      </Field>
+      <Field
+        label="Expiry date"
+        htmlFor={`${idPrefix}-expiry-date`}
+        error={crossed ? "Must be after the manufacture date." : undefined}
+      >
+        <Input
+          id={`${idPrefix}-expiry-date`}
+          type="date"
+          value={expiryDate}
+          min={manufactureDate || undefined}
+          onChange={(e) => onExpiryDateChange(e.target.value)}
+        />
+      </Field>
+    </div>
+  );
+}
+
+/** What happened with a confirmed batch's worksheet: made from the
+ *  product's approved one (and what got filled in), or why not. */
+function WorksheetNotice({
+  batchNumber,
+  result,
+  onDismiss,
+}: {
+  batchNumber: string;
+  result: WorksheetGenerateResult;
+  onDismiss: () => void;
+}) {
+  const ok = result.status === "generated";
+  return (
+    <Card
+      className={`mb-4 flex flex-wrap items-start gap-3 ${ok ? "border-[var(--success)]" : "border-[var(--warning)]"}`}
+      role="status"
+    >
+      {ok ? (
+        <CheckCircle size={20} weight="fill" className="mt-0.5 shrink-0 text-[var(--success)]" />
+      ) : (
+        <Warning size={20} weight="fill" className="mt-0.5 shrink-0 text-[var(--warning)]" />
+      )}
+      <div className="min-w-0 flex-1 text-sm">
+        {ok ? (
+          <>
+            <p className="font-bold text-foreground">
+              Worksheet generated for {batchNumber} — from {result.sourceFileName} (version {result.sourceVersion})
+            </p>
+            <p className="mt-0.5 text-[var(--muted-foreground)]">
+              {result.filled.length ? `Filled in: ${result.filled.join(", ")}.` : "No blanks found to fill in."}
+              {result.notFound.length
+                ? ` No blank found for ${result.notFound.join(", ")} — it's in the line at the top of page 1.`
+                : ""}
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="font-bold text-foreground">No worksheet generated for {batchNumber}</p>
+            <p className="mt-0.5 text-[var(--muted-foreground)]">
+              {result.message} Once there is one, use <strong>Worksheet</strong> on the batch to generate it.
+            </p>
+          </>
+        )}
+      </div>
+      <div className="flex shrink-0 gap-1.5">
+        {ok ? (
+          <Link href="/worksheets?tab=generated">
+            <Button size="sm" variant="primary">
+              <FileText size={15} weight="bold" />
+              Open
+            </Button>
+          </Link>
+        ) : null}
+        <Button size="sm" variant="ghost" onClick={onDismiss}>
+          Dismiss
+        </Button>
+      </div>
+    </Card>
   );
 }
 
@@ -365,6 +511,7 @@ function CreateBatchModal({
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("");
   const [plannedDate, setPlannedDate] = useState("");
+  const [expiryDate, setExpiryDate] = useState("");
   const [urgent, setUrgent] = useState(false);
   const [destination, setDestination] = useState<BatchDestination | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -393,6 +540,7 @@ function CreateBatchModal({
           quantity: quantity || undefined,
           unit: unit || undefined,
           plannedManufactureDate: plannedDate || undefined,
+          expiryDate: expiryDate || undefined,
           urgent,
           destination: destination ?? undefined,
         },
@@ -474,9 +622,13 @@ function CreateBatchModal({
           </Field>
         </div>
 
-        <Field label="Planned manufacture date" htmlFor="planned-date">
-          <Input id="planned-date" type="date" value={plannedDate} onChange={(e) => setPlannedDate(e.target.value)} />
-        </Field>
+        <BatchDateFields
+          idPrefix="new"
+          manufactureDate={plannedDate}
+          onManufactureDateChange={setPlannedDate}
+          expiryDate={expiryDate}
+          onExpiryDateChange={setExpiryDate}
+        />
 
         <PriorityAndDestinationFields
           idPrefix="new"
@@ -512,6 +664,7 @@ function EditBatchModal({
   const [quantity, setQuantity] = useState(batch.quantity ?? "");
   const [unit, setUnit] = useState(batch.unit ?? "");
   const [plannedDate, setPlannedDate] = useState(batch.plannedManufactureDate ?? "");
+  const [expiryDate, setExpiryDate] = useState(batch.expiryDate ?? "");
   const [urgent, setUrgent] = useState(batch.urgent);
   const [destination, setDestination] = useState<BatchDestination | null>(batch.destination);
   const [reason, setReason] = useState("");
@@ -523,6 +676,7 @@ function EditBatchModal({
     quantity: quantity || null,
     unit: unit || null,
     plannedManufactureDate: plannedDate || null,
+    expiryDate: expiryDate || null,
     urgent,
     destination,
   });
@@ -602,14 +756,13 @@ function EditBatchModal({
           </Field>
         </div>
 
-        <Field label="Planned manufacture date" htmlFor="edit-planned-date">
-          <Input
-            id="edit-planned-date"
-            type="date"
-            value={plannedDate}
-            onChange={(e) => setPlannedDate(e.target.value)}
-          />
-        </Field>
+        <BatchDateFields
+          idPrefix="edit"
+          manufactureDate={plannedDate}
+          onManufactureDateChange={setPlannedDate}
+          expiryDate={expiryDate}
+          onExpiryDateChange={setExpiryDate}
+        />
 
         <PriorityAndDestinationFields
           idPrefix="edit"

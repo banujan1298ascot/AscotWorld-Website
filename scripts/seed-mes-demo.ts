@@ -22,7 +22,7 @@
  * act" lock), and some history: completed, failed, a draft, and an M batch.
  */
 import "dotenv/config";
-import { eq, sql } from "drizzle-orm";
+import { eq, isNotNull, sql } from "drizzle-orm";
 import { db } from "../src/server/db/client";
 import {
   auditLogEntries,
@@ -32,6 +32,7 @@ import {
   labelPrintRuns,
   stageDefinitions,
   stageTransitions,
+  worksheets,
 } from "../src/server/db/schema";
 import type { ActingStaff } from "../src/server/actingStaff";
 import { confirmBatch, createDraft, type CreateDraftInput } from "../src/server/batch-book/service";
@@ -175,6 +176,9 @@ async function main() {
     // Order matters: audit entries and transitions both reference batches.
     await db.delete(auditLogEntries);
     await db.delete(labelPrintRuns);
+    // Worksheets generated for a batch go with it; the approved and
+    // archived masters stay.
+    await db.delete(worksheets).where(isNotNull(worksheets.batchId));
     await db.delete(stageTransitions);
     await db.delete(batchRecords);
     await db.delete(batchCounters);
