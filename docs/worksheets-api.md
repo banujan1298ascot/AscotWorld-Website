@@ -15,6 +15,25 @@ Nothing is deleted.
 - Only an admin grants or removes access ("Who can upload" on the page).
   It's per person, not per role: a row in `worksheet_editors`.
 
+## Viewing in the page
+
+**View** (or clicking the file name) opens the worksheet inside the portal —
+`src/components/worksheets/WorksheetPreview.tsx`, with each renderer loaded
+only when needed:
+
+- **PDF** — drawn page by page with pdf.js (`pdfjs-dist`), not the browser's
+  own viewer, because tablets and phones (Chrome on Android especially)
+  won't show a PDF inside a page.
+- **Word .docx** — laid out as pages with `docx-preview`; embedded HTML in a
+  document isn't rendered.
+- **Excel .xlsx / .xls** — each sheet as a plain table of values, read with
+  SheetJS (`xlsx`, installed from SheetJS's own CDN as they recommend).
+- **Old Word .doc** — can't be read in a browser; the viewer offers the
+  download instead.
+
+PDFs and Word documents fit the window's width, with zoom buttons. Archived
+versions carry a warning that they're not the version in use.
+
 ## Schema
 
 | Table | Purpose |

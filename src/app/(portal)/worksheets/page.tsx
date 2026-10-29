@@ -7,6 +7,7 @@ import {
   Archive,
   CheckCircle,
   DownloadSimple,
+  Eye,
   FileText,
   MagnifyingGlass,
   UploadSimple,
@@ -25,6 +26,7 @@ import {
   Skeleton,
   Textarea,
 } from "@/components/ui";
+import { WorksheetPreview } from "@/components/worksheets/WorksheetPreview";
 import { useAuth } from "@/lib/auth";
 import { useProductSuggestions } from "@/lib/batchBook";
 import { ROLES, type Role } from "@/lib/types";
@@ -63,6 +65,7 @@ export default function WorksheetsPage() {
   const [uploading, setUploading] = useState(false);
   const [moving, setMoving] = useState<Worksheet | null>(null);
   const [managingAccess, setManagingAccess] = useState(false);
+  const [previewing, setPreviewing] = useState<Worksheet | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
 
   const counts = useMemo(
@@ -84,29 +87,20 @@ export default function WorksheetsPage() {
   if (!user) return null;
   const isAdmin = user.role === "admin";
 
-  /** Opens a PDF in a new tab; Word and Excel files download instead. The
-   *  tab is opened straight away, while the click still counts, so the
-   *  browser doesn't block it as a pop-up while the file arrives. */
-  async function openFile(worksheet: Worksheet, mode: "open" | "download") {
+  /** Saves the file to the device, under its original name. */
+  async function downloadFile(worksheet: Worksheet) {
     if (!user) return;
     setFileError(null);
-    const viewInTab = mode === "open" && worksheet.contentType === "application/pdf";
-    const tabWindow = viewInTab ? window.open("", "_blank") : null;
     try {
       const blob = await downloadWorksheetFile(user.id, worksheet);
       const url = URL.createObjectURL(blob);
-      if (tabWindow) {
-        tabWindow.location.href = url;
-      } else {
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = worksheet.fileName;
-        link.click();
-      }
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = worksheet.fileName;
+      link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (err) {
-      tabWindow?.close();
-      setFileError(err instanceof Error ? err.message : "Couldn't open that file.");
+      setFileError(err instanceof Error ? err.message : "Couldn't download that file.");
     }
   }
 
@@ -210,7 +204,8 @@ export default function WorksheetsPage() {
                     key={worksheet.id}
                     worksheet={worksheet}
                     canManage={canManage}
-                    onOpen={(mode) => void openFile(worksheet, mode)}
+                    onView={() => setPreviewing(worksheet)}
+                    onDownload={() => void downloadFile(worksheet)}
                     onMove={() => setMoving(worksheet)}
                   />
                 ))}
@@ -242,6 +237,15 @@ export default function WorksheetsPage() {
             setMoving(null);
             refresh();
           }}
+        />
+      ) : null}
+
+      {previewing ? (
+        <WorksheetPreview
+          staffId={user.id}
+          worksheet={previewing}
+          onClose={() => setPreviewing(null)}
+          onDownload={() => void downloadFile(previewing)}
         />
       ) : null}
 
@@ -305,16 +309,17 @@ function when(iso: string): string {
 function WorksheetRow({
   worksheet,
   canManage,
-  onOpen,
+  onView,
+  onDownload,
   onMove,
 }: {
   worksheet: Worksheet;
   canManage: boolean;
-  onOpen: (mode: "open" | "download") => void;
+  onView: () => void;
+  onDownload: () => void;
   onMove: () => void;
 }) {
   const archived = worksheet.status === "ARCHIVED";
-  const isPdf = worksheet.contentType === "application/pdf";
   return (
     <tr className="border-b border-[var(--border)] align-top last:border-b-0">
       <td className="px-4 py-3">
@@ -328,9 +333,9 @@ function WorksheetRow({
       <td className="px-4 py-3">
         <button
           type="button"
-          onClick={() => onOpen("open")}
+          onClick={onView}
           className="inline-flex max-w-[220px] cursor-pointer items-start gap-1.5 text-left text-[var(--primary)] hover:underline"
-          title={isPdf ? "Open in a new tab" : "Download"}
+          title="View it here"
         >
           <FileText size={16} weight="duotone" className="mt-px shrink-0" />
           <span className="break-all">{worksheet.fileName}</span>
@@ -351,7 +356,11 @@ function WorksheetRow({
       ) : null}
       <td className="px-4 py-3">
         <div className="flex justify-end gap-1.5">
-          <Button size="sm" variant="secondary" onClick={() => onOpen("download")} aria-label={`Download ${worksheet.fileName}`}>
+          <Button size="sm" variant="primary" onClick={onView} aria-label={`View ${worksheet.fileName}`}>
+            <Eye size={15} weight="bold" />
+            View
+          </Button>
+          <Button size="sm" variant="secondary" onClick={onDownload} aria-label={`Download ${worksheet.fileName}`}>
             <DownloadSimple size={15} weight="bold" />
             Download
           </Button>

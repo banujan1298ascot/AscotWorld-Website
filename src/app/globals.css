@@ -507,3 +507,10 @@ body {
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
 }
+
+/* Worksheet preview of a Word document (docx-preview): pages stay centred,
+   but zoomed wider than the window they start at the left edge instead of
+   being cut off on both sides. */
+.docx-preview-host .docx-wrapper {
+  align-items: safe center;
+}
