@@ -326,6 +326,8 @@ export function Modal({
   size?: "md" | "lg";
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  /** Whether the current click began on the backdrop. */
+  const pressedOnBackdrop = useRef(false);
 
   useEffect(() => {
     const dialog = ref.current;
@@ -341,9 +343,15 @@ export function Modal({
         e.preventDefault();
         onClose();
       }}
+      onMouseDown={(e) => {
+        pressedOnBackdrop.current = e.target === ref.current;
+      }}
       onClick={(e) => {
-        // Clicking the backdrop (the dialog element itself) dismisses.
-        if (e.target === ref.current) onClose();
+        // Clicking the backdrop (the dialog element itself) dismisses — but
+        // only a click that starts there too. Selecting text in a field and
+        // letting go outside the box mustn't close it.
+        if (e.target === ref.current && pressedOnBackdrop.current) onClose();
+        pressedOnBackdrop.current = false;
       }}
       className={`m-auto ${size === "lg" ? "w-[min(64rem,calc(100vw-2rem))]" : "w-[min(38rem,calc(100vw-2rem))]"} rounded-lg border border-[var(--border)]
         bg-[var(--surface)] p-0 text-foreground shadow-[var(--shadow-overlay)]
