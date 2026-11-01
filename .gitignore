@@ -43,3 +43,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# pdf.js decoders/fonts for the worksheet viewer — copied from node_modules
+# by scripts/copy-pdfjs-assets.mjs before dev and build
+/public/pdfjs/

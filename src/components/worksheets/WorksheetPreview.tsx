@@ -377,7 +377,18 @@ function PdfView({ blob, zoom }: { blob: Blob; zoom: number }) {
           { type: "module" },
         );
       }
-      const task = pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) });
+      const task = pdfjs.getDocument({
+        data: new Uint8Array(await blob.arrayBuffer()),
+        // Decoders, colour profiles, fonts and character maps pdf.js loads
+        // as a page needs them — scanned worksheets are usually JBIG2
+        // images, which come out blank without the decoder. Copied into
+        // public/ by scripts/copy-pdfjs-assets.mjs.
+        wasmUrl: "/pdfjs/wasm/",
+        iccUrl: "/pdfjs/iccs/",
+        standardFontDataUrl: "/pdfjs/standard_fonts/",
+        cMapUrl: "/pdfjs/cmaps/",
+        cMapPacked: true,
+      });
       destroy = () => void task.destroy();
       const pdf = await task.promise;
       if (cancelled) return;
