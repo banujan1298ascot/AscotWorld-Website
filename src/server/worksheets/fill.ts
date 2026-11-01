@@ -39,6 +39,8 @@ export interface Draw {
   y: number;
   size: number;
   text: string;
+  /** Bold unless said otherwise — values stand out; working doesn't need to. */
+  font?: "regular";
 }
 
 export const FIELD_LABELS: Record<FillField, string> = {

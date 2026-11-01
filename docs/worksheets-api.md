@@ -44,6 +44,7 @@ versions carry a warning that they're not the version in use.
 | `worksheets` | One per uploaded file: product, version, optional reference and notes, file details, status (`UPLOADING` → `APPROVED` ⇄ `ARCHIVED`), who uploaded/archived it and when. |
 | `worksheet_file_chunks` | The file itself, in pieces of up to 3 MB. |
 | `worksheet_editors` | Who has worksheet access, and who granted it. |
+| `product_formulas` | Each product's formula, every version kept (see Formulas and quantities). |
 
 Files live in Postgres because the project has no file storage set up. They
 go up and come down in 3 MB pieces because one request to the hosted site
@@ -79,7 +80,9 @@ When Check 1 confirms a batch, the batch's worksheet is generated
    name, file name or reference contains every word of the medicine name, its
    strength ("20mg" — not "120mg") and its type ("tablet", "capsule", …). A
    pack count in the file name ("100s") must match the batch's pack size;
-   ties go to the newest upload.
+   ties go to the newest upload. A worksheet that names no strength at all
+   ("Melatonin Oral Solution", whose form has "____ mg in 5ml") covers every
+   strength, so it matches too, but one naming the batch's strength wins.
 2. **Fill a copy** (`fill.ts` plans, pdf-lib draws): pdf.js reads where each
    label sits, and the value goes into the blank beside it — an underscore
    run, or for dates the day / month / year between the dots of
@@ -101,3 +104,65 @@ new copy each time.
 
 The batch's manufacture date and new **expiry date** (`batch_records.expiry_date`,
 entered at Check 1, must be after manufacture) feed the dates.
+
+## Formulas and quantities
+
+The **Formulas** tab holds each solution's formula as data
+(`product_formulas`, rules in `src/lib/formulaRules.ts`), so a new product
+needs a new definition, not new code. People with worksheet access add and
+edit them; everyone can read them and **Try it** with a number of bottles.
+Saving a change makes the next version and retires the old one — nothing is
+edited in place, so a generated worksheet's numbers trace back to the
+version they came from.
+
+Each ingredient has a basis:
+
+| Basis | Quantity required |
+|---|---|
+| Per 100 ml (propylene glycol 8 ml) | amount × total volume ÷ 100 |
+| Per dose (melatonin 5 mg in 5 ml) | strength × total volume ÷ dose volume. Leave the amount blank to follow the batch's strength ("5mg/5ml"). |
+| To volume (diluent, preserved water) | made up to the total volume — at most one per formula |
+| Fixed | the stated amount, unscaled |
+
+- **Total volume** = bottles × (pack size + overage). The overage is per
+  bottle and set on the formula (10 ml for solutions).
+- **Final product quantity** = bottles × pack size, without the overage.
+- Mass converts between mcg, mg and g for the unit the worksheet's column
+  uses. Nothing is rounded until the value shown: g to 3 dp and ml to 1 dp
+  unless the ingredient sets its own decimal places.
+- Zero or negative inputs are refused, as are ingredients in ml that add
+  up to the whole batch when something is made up to volume.
+
+When a batch is confirmed and its product has a formula (same medicine and
+type, and its strength or none), `generate.ts` works the quantities out and
+`quantities.ts` places them:
+
+- **Worksheet with text:** finds the "Quantity / Required" column and each
+  ingredient's row by its name (bracketed reference codes ignored). The
+  number goes just before the unit printed in the cell, with "(optional)"
+  beside optional ingredients. Bottles and volume go in the first
+  "____ x ____ ml" under FINAL PRODUCT QUANTITY. The working goes in the
+  CALCULATION box, below anything already printed there.
+- **Scanned worksheet:** has no text, so the places come from the formula's
+  `scan_layout`, measured for that one file (`worksheetId`). A new version
+  of the worksheet needs measuring again. Melatonin's was measured from
+  MD85-0232/03.
+- **Whatever can't be placed:** a row not found, a Calculation box too small
+  to read (under 5.5 pt), or a scan with no layout. A **Batch calculation**
+  page is added at the end with every quantity and the working, and the box
+  points to it.
+
+The confirm response's `worksheet.calculation` lists the quantities and the
+Batch Book shows them. For a solution with no formula, or a batch missing
+its bottles or volume, `calculationMessage` says why.
+
+| Method & path | Who | What |
+|---|---|---|
+| `GET /api/formulas` | anyone | `{ formulas, canManage }` — the versions in use. |
+| `POST /api/formulas` | access | A new formula; refused if the product already has one. |
+| `PUT /api/formulas/:id` | access | Saves a change as the next version. |
+| `DELETE /api/formulas/:id` | access | Withdraws it; it stays on record. |
+
+Tested in `src/lib/formulaRules.test.ts` (including the Melatonin worked
+example) and `src/server/worksheets/quantities.test.ts` (positions from the
+Alimemazine worksheet).

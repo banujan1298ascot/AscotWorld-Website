@@ -367,6 +367,28 @@ function WorksheetNotice({
                 ? ` No blank found for ${result.notFound.join(", ")} — it's in the line at the top of page 1.`
                 : ""}
             </p>
+            {result.calculation ? (
+              <div className="mt-2">
+                <p className="text-xs font-bold text-foreground">
+                  Quantities required — {result.calculation.totalVolumeMl} ml made, {result.calculation.finalQuantityMl} ml
+                  supplied (formula version {result.calculation.formulaVersion})
+                  {result.calculation.addedPage ? ", with the working on a page added at the end" : ""}
+                </p>
+                <ul className="mt-1 grid gap-x-6 gap-y-0.5 text-[13px] sm:grid-cols-2">
+                  {result.calculation.quantities.map((q) => (
+                    <li key={q.name} className="flex justify-between gap-3">
+                      <span className="text-[var(--muted-foreground)]">
+                        {q.name}
+                        {q.optional ? " (optional)" : ""}
+                      </span>
+                      <span className="whitespace-nowrap font-mono font-semibold tabular-nums text-foreground">{q.quantity}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : result.calculationMessage ? (
+              <p className="mt-1 text-[var(--muted-foreground)]">{result.calculationMessage}</p>
+            ) : null}
           </>
         ) : (
           <>

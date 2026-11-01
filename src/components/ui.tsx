@@ -314,6 +314,7 @@ export function Modal({
   description,
   children,
   footer,
+  size = "md",
 }: {
   open: boolean;
   onClose: () => void;
@@ -321,6 +322,8 @@ export function Modal({
   description?: string;
   children: ReactNode;
   footer?: ReactNode;
+  /** "lg" for forms with a table in them. */
+  size?: "md" | "lg";
 }) {
   const ref = useRef<HTMLDialogElement>(null);
 
@@ -342,9 +345,9 @@ export function Modal({
         // Clicking the backdrop (the dialog element itself) dismisses.
         if (e.target === ref.current) onClose();
       }}
-      className="m-auto w-[min(38rem,calc(100vw-2rem))] rounded-lg border border-[var(--border)]
+      className={`m-auto ${size === "lg" ? "w-[min(64rem,calc(100vw-2rem))]" : "w-[min(38rem,calc(100vw-2rem))]"} rounded-lg border border-[var(--border)]
         bg-[var(--surface)] p-0 text-foreground shadow-[var(--shadow-overlay)]
-        backdrop:bg-black/50 backdrop:backdrop-blur-[2px]"
+        backdrop:bg-black/50 backdrop:backdrop-blur-[2px]`}
     >
       {open ? (
         <div className="max-h-[85vh] overflow-y-auto">

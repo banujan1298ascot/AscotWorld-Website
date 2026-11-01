@@ -10,6 +10,7 @@ import {
   DownloadSimple,
   FileArrowDown,
   Eye,
+  Flask,
   FileText,
   MagnifyingGlass,
   UploadSimple,
@@ -28,9 +29,11 @@ import {
   Skeleton,
   Textarea,
 } from "@/components/ui";
+import { FormulasPanel } from "@/components/worksheets/FormulasPanel";
 import { WorksheetPreview } from "@/components/worksheets/WorksheetPreview";
 import { useAuth } from "@/lib/auth";
 import { useProductSuggestions } from "@/lib/batchBook";
+import { useFormulas } from "@/lib/formulas";
 import { ROLES, type Role } from "@/lib/types";
 import {
   WORKSHEET_ACCEPT,
@@ -50,9 +53,14 @@ import {
   type WorksheetAccessEntry,
 } from "@/lib/worksheets";
 
-type Tab = "APPROVED" | "ARCHIVED" | "GENERATED";
+type Tab = "APPROVED" | "ARCHIVED" | "GENERATED" | "FORMULAS";
 
-const TAB_PARAM: Record<string, Tab> = { approved: "APPROVED", archived: "ARCHIVED", generated: "GENERATED" };
+const TAB_PARAM: Record<string, Tab> = {
+  approved: "APPROVED",
+  archived: "ARCHIVED",
+  generated: "GENERATED",
+  formulas: "FORMULAS",
+};
 
 export default function WorksheetsRoute() {
   // useSearchParams (for ?tab=generated) needs a Suspense boundary.
@@ -68,13 +76,16 @@ export default function WorksheetsRoute() {
  * when a new version is uploaded the old one moves to Archived, so every
  * version stays on record. Generated holds the copies filled in for each
  * batch when it's confirmed — made from an approved worksheet, which itself
- * is never changed. Everyone can view and download them; uploading and
- * moving them is for the people an admin gives access to (the senior
- * pharmacist and production manager) — the server enforces the same.
+ * is never changed. Formulas holds each product's ingredient amounts, which
+ * fill in a generated worksheet's quantities. Everyone can view and
+ * download them; uploading and moving them, and changing formulas, is for
+ * the people an admin gives access to (the senior pharmacist and
+ * production manager) — the server enforces the same.
  */
 function WorksheetsPage() {
   const { user } = useAuth();
   const { worksheets, canManage, ready, error, refresh } = useWorksheets();
+  const formulas = useFormulas();
   const params = useSearchParams();
   const [tab, setTab] = useState<Tab>(() => TAB_PARAM[params.get("tab") ?? ""] ?? "APPROVED");
   const [search, setSearch] = useState("");
@@ -89,8 +100,9 @@ function WorksheetsPage() {
       APPROVED: worksheets.filter((w) => w.status === "APPROVED").length,
       ARCHIVED: worksheets.filter((w) => w.status === "ARCHIVED").length,
       GENERATED: worksheets.filter((w) => w.status === "GENERATED").length,
+      FORMULAS: formulas.formulas.length,
     }),
-    [worksheets],
+    [worksheets, formulas.formulas],
   );
 
   const query = search.trim().toLowerCase();
@@ -164,12 +176,30 @@ function WorksheetsPage() {
             className="h-9 pl-8"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Product, batch, version, reference or file…"
+            placeholder={tab === "FORMULAS" ? "Product or ingredient…" : "Product, batch, version, reference or file…"}
           />
         </label>
       </div>
 
-      {error ? (
+      {tab === "FORMULAS" ? (
+        <>
+          {formulas.error ? (
+            <div className="mb-3">
+              <ErrorNotice message={formulas.error} />
+            </div>
+          ) : null}
+          <FormulasPanel
+            staffId={user.id}
+            formulas={formulas.formulas}
+            canManage={formulas.canManage}
+            ready={formulas.ready}
+            search={search}
+            onChanged={formulas.refresh}
+          />
+        </>
+      ) : null}
+
+      {tab === "FORMULAS" ? null : error ? (
         <div className="mb-3">
           <ErrorNotice message={error} />
         </div>
@@ -180,7 +210,7 @@ function WorksheetsPage() {
         </div>
       ) : null}
 
-      {!ready ? (
+      {tab === "FORMULAS" ? null : !ready ? (
         <Skeleton className="h-48 w-full" />
       ) : shown.length === 0 ? (
         <Card>
@@ -295,6 +325,7 @@ function TabSwitch({
     { value: "APPROVED", label: "Approved", icon: CheckCircle },
     { value: "ARCHIVED", label: "Archived", icon: Archive },
     { value: "GENERATED", label: "Generated", icon: FileArrowDown },
+    { value: "FORMULAS", label: "Formulas", icon: Flask },
   ];
   return (
     <div

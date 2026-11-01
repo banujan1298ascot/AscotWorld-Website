@@ -6,11 +6,18 @@
  * GENERATED worksheet tied to the batch; the approved master is only ever
  * read, never changed.
  *
+ * When the product has a formula (src/lib/formulaRules.ts — solutions
+ * entered on the Worksheets page), each ingredient's Quantity Required, the
+ * final product quantity and the working are filled in too
+ * (./quantities.ts works out where). Anything that can't be placed on the
+ * form goes on a calculation page added to the end.
+ *
  * PDF worksheets only for now — Word and Excel ones are reported as not
  * fillable rather than guessed at.
  */
 import { asc, eq } from "drizzle-orm";
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib";
+import { FORMULA_BASES, calculateBatch, plain, quantityText, type Calculation } from "@/lib/formulaRules";
 import { roleCan } from "@/lib/types";
 import { WORKSHEET_CHUNK_BYTES, chunkCountFor, fileExtension } from "@/lib/worksheetRules";
 import { formatPack } from "@/lib/products";
@@ -18,8 +25,10 @@ import { ApiError } from "../apiError";
 import type { ActingStaff } from "../actingStaff";
 import { db } from "../db/client";
 import { batchRecords, staff, worksheetFileChunks, worksheets } from "../db/schema";
+import { activeFormulas, toDefinition } from "../formulas/service";
 import { FIELD_LABELS, planFill, type FillField, type FillValues, type TextItem } from "./fill";
-import { batchProductOf, pickWorksheet } from "./matching";
+import { batchProductOf, pickFormula, pickWorksheet } from "./matching";
+import { planQuantities } from "./quantities";
 import { mayManageWorksheets } from "./service";
 
 export type GenerateResult =
@@ -34,8 +43,24 @@ export type GenerateResult =
       /** Fields the worksheet had no blank for — they're still in the
        *  summary line at the top of page 1. */
       notFound: string[];
+      /** The ingredient quantities, when the product has a formula. */
+      calculation: GeneratedCalculation | null;
+      /** Why there are no quantities, for a solution that should have them. */
+      calculationMessage: string | null;
     }
   | { status: "no-match" | "unsupported" | "failed"; message: string };
+
+export interface GeneratedCalculation {
+  formulaVersion: number;
+  totalVolumeMl: number;
+  finalQuantityMl: number;
+  quantities: { name: string; quantity: string; optional: boolean }[];
+  /** True when some of it couldn't be placed on the form, so it's on a
+   *  calculation page added to the end. */
+  addedPage: boolean;
+}
+
+const LIQUID_FORMS = new Set(["SOLUTION", "SUSPENSION"]);
 
 /** Ink for everything written onto the copy — a print-blue, so filled-in
  *  values stand apart from the master's own black. */
@@ -139,8 +164,31 @@ export async function generateWorksheetForBatch(batchId: string, actor: ActingSt
     packSize: batch.packSize ? String(Number(batch.packSize)) : null,
   };
 
+  // The quantities, from the product's formula.
+  const formula = pickFormula(product, await activeFormulas());
+  let calc: Calculation | null = null;
+  let calculationMessage: string | null = null;
+  if (!formula) {
+    if (product.dosageForm && LIQUID_FORMS.has(product.dosageForm)) {
+      calculationMessage = `There's no formula for ${productLabel}, so the quantities weren't worked out — add one under Formulas on the Worksheets page.`;
+    }
+  } else if (!batch.quantity || !batch.packSize) {
+    calculationMessage = "The quantities weren't worked out — the batch needs its number of bottles and the volume of each.";
+  } else if (batch.packUnit !== "ml") {
+    calculationMessage = `The quantities weren't worked out — the formula needs the pack size in ml, not ${batch.packUnit ?? "no unit"}.`;
+  } else {
+    const result = calculateBatch(toDefinition(formula), {
+      bottles: Number(batch.quantity),
+      packSizeMl: Number(batch.packSize),
+      strength: batch.strength ?? product.strength,
+    });
+    if (result.ok) calc = result.value;
+    else calculationMessage = `The quantities weren't worked out: ${result.error}`;
+  }
+
   let output: Uint8Array;
   let placed: Record<FillField, number>;
+  let addedPage = false;
   try {
     const original = await readFile(source.id);
     const textPages = await readPdfText(new Uint8Array(original));
@@ -155,11 +203,38 @@ export async function generateWorksheetForBatch(batchId: string, actor: ActingSt
       if (pages[d.page]) drawLine(pages[d.page], bold, d.text, d.x, d.y, d.size);
     }
 
+    if (calc && formula) {
+      const quantities = planQuantities(
+        textPages,
+        calc,
+        (text, size, font) => (font === "bold" ? bold : regular).widthOfTextAtSize(printable(text), size),
+        formula.scanLayout,
+        source.id,
+      );
+      for (const d of quantities.draws) {
+        if (pages[d.page]) drawLine(pages[d.page], d.font === "regular" ? regular : bold, d.text, d.x, d.y, d.size);
+      }
+      const everythingPlaced =
+        calc.lines.every((l) => quantities.quantities.has(l.ingredientId)) &&
+        quantities.calculation &&
+        quantities.finalQuantity;
+      if (!everythingPlaced) {
+        addCalculationPage(doc, bold, regular, calc, {
+          batchNumber: values.batchNumber,
+          product: productLabel,
+          formulaVersion: formula.version,
+          scanned: textPages.every((items) => items.length === 0),
+        });
+        addedPage = true;
+      }
+    }
+
     const [person] = await db.select({ name: staff.name }).from(staff).where(eq(staff.id, actor.id)).limit(1);
     const today = new Date().toISOString().slice(0, 10);
     const quantity = values.quantity ? `${values.quantity} ${batch.unit ?? ""}`.trim() : "—";
     const pack = formatPack(batch.packSize, batch.packUnit) ?? "—";
-    pages.forEach((page, i) => {
+    // Including any calculation page just added.
+    doc.getPages().forEach((page, i) => {
       const box = page.getCropBox();
       if (i === 0) {
         // Everything on one line too, in case a blank wasn't found.
@@ -199,6 +274,11 @@ export async function generateWorksheetForBatch(batchId: string, actor: ActingSt
 
   const notes = [
     filled.length ? `Filled in: ${filled.join(", ")}.` : "No blanks found to fill in.",
+    calc && formula
+      ? `Quantities from formula version ${formula.version}${addedPage ? ", on a calculation page added at the end" : ""}: ${calc.lines
+          .map((l) => `${l.name} ${quantityText(l)}`)
+          .join("; ")}.`
+      : (calculationMessage ?? ""),
     notFound.length ? `No blank found for: ${notFound.join(", ")} — shown in the line at the top of page 1.` : "",
     missingFromBatch.length ? `Not in the Batch Book: ${missingFromBatch.join(", ")}.` : "",
   ]
@@ -245,6 +325,70 @@ export async function generateWorksheetForBatch(batchId: string, actor: ActingSt
     sourceVersion: source.version,
     filled,
     notFound,
+    calculation:
+      calc && formula
+        ? {
+            formulaVersion: formula.version,
+            totalVolumeMl: calc.totalVolumeMl,
+            finalQuantityMl: calc.finalQuantityMl,
+            quantities: calc.lines.map((l) => ({ name: l.name, quantity: quantityText(l), optional: l.optional })),
+            addedPage,
+          }
+        : null,
+    calculationMessage,
   };
+}
+
+/**
+ * A page added to the end of the generated worksheet with every quantity
+ * and the working, for whatever couldn't be placed on the form itself — a
+ * scanned worksheet, or a Calculation box too small for the working.
+ */
+function addCalculationPage(
+  doc: PDFDocument,
+  bold: PDFFont,
+  regular: PDFFont,
+  calc: Calculation,
+  about: { batchNumber: string; product: string; formulaVersion: number; scanned: boolean },
+) {
+  const page = doc.addPage([595.28, 841.89]);
+  const left = 50;
+  let y = 790;
+  const line = (font: PDFFont, text: string, size: number, x = left) => drawLine(page, font, text, x, y, size);
+
+  line(bold, "BATCH CALCULATION", 16);
+  y -= 20;
+  line(regular, `Batch ${about.batchNumber}   |   ${about.product}   |   Formula version ${about.formulaVersion}`, 10);
+  y -= 14;
+  line(
+    regular,
+    about.scanned
+      ? "The worksheet is a scan, so the quantities couldn't be written in its own boxes - enter them from this page."
+      : "Not everything fitted in the worksheet's own boxes, so the full calculation is here.",
+    8.5,
+  );
+
+  y -= 30;
+  line(bold, "Raw material", 10);
+  line(bold, "Basis", 10, 300);
+  line(bold, "Quantity required", 10, 420);
+  y -= 6;
+  page.drawLine({ start: { x: left, y }, end: { x: 545, y }, thickness: 0.6, color: INK });
+  for (const l of calc.lines) {
+    y -= 16;
+    line(regular, `${l.name}${l.optional ? " (optional)" : ""}`.slice(0, 60), 10);
+    line(regular, FORMULA_BASES.find((b) => b.value === l.basis)?.label ?? "", 10, 300);
+    line(bold, quantityText(l), 10, 420);
+  }
+  y -= 22;
+  line(bold, "Final product quantity", 10);
+  line(bold, `${plain(calc.bottles)} x ${plain(calc.packSizeMl)} ml = ${plain(calc.finalQuantityMl)} ml`, 10, 420);
+
+  y -= 30;
+  line(bold, "CALCULATION", 10);
+  for (const w of calc.working) {
+    y -= 15;
+    line(regular, w, 9);
+  }
 }
 

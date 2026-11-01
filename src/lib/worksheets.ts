@@ -49,6 +49,14 @@ export type WorksheetGenerateResult =
       sourceVersion: string;
       filled: string[];
       notFound: string[];
+      calculation: {
+        formulaVersion: number;
+        totalVolumeMl: number;
+        finalQuantityMl: number;
+        quantities: { name: string; quantity: string; optional: boolean }[];
+        addedPage: boolean;
+      } | null;
+      calculationMessage: string | null;
     }
   | { status: "no-match" | "unsupported" | "failed"; message: string };
 
