@@ -10,7 +10,8 @@ import {
 } from "react";
 import { staffCollection } from "./seed";
 import { refreshCollections, useCollection } from "./storage";
-import { roleCan, type Capability, type StaffMember } from "./types";
+import { staffCan } from "./access";
+import type { Capability, StaffMember } from "./types";
 
 /* ============================================================================
  * Demo authentication
@@ -127,7 +128,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(() => writeSession(null), []);
 
   const can = useCallback(
-    (capability: Capability) => (user ? roleCan(user.role, capability) : false),
+    (capability: Capability) => (user ? staffCan(user, capability) : false),
     [user],
   );
 

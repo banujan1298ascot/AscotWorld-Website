@@ -18,6 +18,8 @@ describe("canManageWorksheets", () => {
   it("only lets an admin grant access", () => {
     expect(canGrantWorksheetAccess({ id: "a", role: "admin" }).ok).toBe(true);
     expect(canGrantWorksheetAccess({ id: "q", role: "qa" }).ok).toBe(false);
+    // A manager given "manage users" on the Team page can too.
+    expect(canGrantWorksheetAccess({ id: "m", role: "qa", access: { grant: ["team.manage"] } }).ok).toBe(true);
   });
 });
 

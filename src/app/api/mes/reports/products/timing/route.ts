@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { roleCan } from "@/lib/types";
+import { staffCan } from "@/lib/access";
 import { ApiError, apiErrorResponse } from "@/server/apiError";
 import { requireCapability, requireStaff } from "@/server/auth/requireStaff";
 import { getProductTiming } from "@/server/dashboard/reports";
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     const product = request.nextUrl.searchParams.get("product");
     if (!product) throw new ApiError(400, "product is required.");
 
-    const includeOperators = roleCan(actingStaff.role, "dashboard.viewOperatorMetrics");
+    const includeOperators = staffCan(actingStaff, "dashboard.viewOperatorMetrics");
     return NextResponse.json(await getProductTiming(departmentId, product, includeOperators));
   } catch (error) {
     return apiErrorResponse(error);

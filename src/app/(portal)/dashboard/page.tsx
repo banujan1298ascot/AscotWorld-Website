@@ -126,7 +126,7 @@ export default function DashboardPage() {
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
   const shortcuts = MODULES.filter(
-    (m) => m.showOnDashboard && user && canAccessModule(m, user.role),
+    (m) => m.showOnDashboard && user && canAccessModule(m, user),
   );
 
   return (

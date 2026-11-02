@@ -10,6 +10,7 @@ import {
   WarningCircle,
   XCircle,
 } from "@phosphor-icons/react/dist/ssr";
+import { staffCan } from "@/lib/access";
 import { DueDate, PriorityTag, StaffChip, TaskStatusPill } from "@/components/domain";
 import {
   Button,
@@ -30,7 +31,6 @@ import { pushNotification } from "@/lib/notifications";
 import { batchCollection, departmentCollection, staffCollection, taskCollection } from "@/lib/seed";
 import { useCollection } from "@/lib/storage";
 import {
-  roleCan,
   TASK_PRIORITY,
   TASK_STATUS,
   type Task,
@@ -257,7 +257,7 @@ export default function TasksPage() {
             // per-department one, so every manager is notified rather than a
             // single owner for the assignee's specific department.
             staff
-              .filter((s) => roleCan(s.role, "task.updateAny") && s.id !== user?.id)
+              .filter((s) => staffCan(s, "task.updateAny") && s.id !== user?.id)
               .forEach((manager) => {
                 pushNotification({
                   recipientId: manager.id,

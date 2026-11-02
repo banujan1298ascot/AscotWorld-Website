@@ -17,8 +17,8 @@
  */
 import { asc, eq } from "drizzle-orm";
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib";
+import { staffCan } from "@/lib/access";
 import { FORMULA_BASES, calculateBatch, plain, quantityText, type Calculation } from "@/lib/formulaRules";
-import { roleCan } from "@/lib/types";
 import { WORKSHEET_CHUNK_BYTES, chunkCountFor, fileExtension } from "@/lib/worksheetRules";
 import { formatPack } from "@/lib/products";
 import { ApiError } from "../apiError";
@@ -130,7 +130,7 @@ function drawLine(page: ReturnType<PDFDocument["getPages"]>[number], font: PDFFo
  * show — only for a request it must refuse (permission, unconfirmed batch).
  */
 export async function generateWorksheetForBatch(batchId: string, actor: ActingStaff): Promise<GenerateResult> {
-  if (!roleCan(actor.role, "batchbook.confirm") && !(await mayManageWorksheets(actor))) {
+  if (!staffCan(actor, "batchbook.confirm") && !(await mayManageWorksheets(actor))) {
     throw new ApiError(403, "Only Batch Book entry or people with worksheet access can generate worksheets.");
   }
   const [batch] = await db.select().from(batchRecords).where(eq(batchRecords.id, batchId)).limit(1);

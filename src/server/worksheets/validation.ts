@@ -3,6 +3,7 @@
  * must look like. No DB access, so they're unit-tested directly
  * (validation.test.ts); src/server/worksheets/service.ts applies them.
  */
+import { staffCan } from "@/lib/access";
 import type { ActingStaff } from "../actingStaff";
 import {
   WORKSHEET_CHUNK_BYTES,
@@ -27,11 +28,12 @@ export function canManageWorksheets(actor: ActingStaff, hasAccess: boolean): Res
   };
 }
 
-/** Granting access is an admin's call. */
+/** Granting access is for whoever manages users — admins, and anyone
+ *  they've given that to on the Team page. */
 export function canGrantWorksheetAccess(actor: ActingStaff): Result {
-  return actor.role === "admin"
+  return staffCan(actor, "team.manage")
     ? { ok: true, value: undefined }
-    : { ok: false, error: "Only an admin can change who has worksheet access." };
+    : { ok: false, error: "Only an admin or someone who manages users can change who has worksheet access." };
 }
 
 export interface UploadInput {

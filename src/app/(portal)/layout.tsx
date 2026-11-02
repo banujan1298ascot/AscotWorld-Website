@@ -29,6 +29,7 @@ import {
   bottomNavForRole,
   canAccessModule,
   groupedModulesForRole,
+  homeRouteFor,
   moduleForPath,
   type PortalModule,
 } from "@/modules/registry";
@@ -98,13 +99,13 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     );
   }
 
-  const groups = groupedModulesForRole(user.role);
-  const bottomNavModules = bottomNavForRole(user.role);
+  const groups = groupedModulesForRole(user);
+  const bottomNavModules = bottomNavForRole(user);
   const current = moduleForPath(pathname);
 
   // A section exists but this role may not open it — say so plainly rather
   // than silently redirecting somewhere unexpected.
-  const forbidden = current ? !canAccessModule(current, user.role) : false;
+  const forbidden = current ? !canAccessModule(current, user) : false;
 
   return (
     <div
@@ -170,7 +171,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
         <main className="flex-1 px-4 py-5 pb-24 sm:px-6 lg:pb-8">
           <PageTransition>
-            {forbidden ? <Forbidden roleLabel={ROLES[user.role].label} /> : children}
+            {forbidden ? <Forbidden roleLabel={ROLES[user.role].label} home={homeRouteFor(user)} /> : children}
           </PageTransition>
         </main>
       </div>
@@ -404,17 +405,17 @@ function UserPanel({ user, onSignOut }: { user: StaffMember; onSignOut: () => vo
   );
 }
 
-function Forbidden({ roleLabel }: { roleLabel: string }) {
+function Forbidden({ roleLabel, home }: { roleLabel: string; home: string }) {
   return (
     <div className="mx-auto flex max-w-md flex-col items-center py-20 text-center">
       <Prohibit size={34} weight="duotone" className="text-[var(--muted-foreground)]" />
       <h1 className="mt-3 text-lg font-extrabold">This section isn&apos;t available to you</h1>
       <p className="mt-1.5 text-sm text-[var(--muted-foreground)]">
-        Your account is signed in as <strong className="text-foreground">{roleLabel}</strong>, which
-        doesn&apos;t have access here. Ask an administrator if you need it.
+        Your account (<strong className="text-foreground">{roleLabel}</strong>) doesn&apos;t have access
+        here. Ask an administrator or manager if you need it.
       </p>
-      <Link href="/dashboard" className="mt-5">
-        <Button variant="primary">Back to dashboard</Button>
+      <Link href={home} className="mt-5">
+        <Button variant="primary">Go to your home page</Button>
       </Link>
     </div>
   );

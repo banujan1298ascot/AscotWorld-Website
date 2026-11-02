@@ -27,6 +27,7 @@ import {
   UserPlus,
   XCircle,
 } from "@phosphor-icons/react/dist/ssr";
+import { staffCan } from "@/lib/access";
 import { Avatar, Button, Card, EmptyState, ErrorNotice, Field, Modal, PageHeader, PermissionNotice, Skeleton, StatusPill, Textarea } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { BATCH_BOOK_STATUS_LABELS, useDepartments, type BatchRecord } from "@/lib/batchBook";
@@ -39,7 +40,7 @@ import { staffCollection } from "@/lib/seed";
 import { isAudioUnlocked, unlockAudio, useSoundAlertsEnabled } from "@/lib/soundAlerts";
 import { stationDotStyle, usePageStation } from "@/lib/stationColors";
 import { useCollection } from "@/lib/storage";
-import { OPERATOR_ROLES, roleCan, type StaffMember } from "@/lib/types";
+import { OPERATOR_ROLES, type StaffMember } from "@/lib/types";
 
 /** How long a press has to be held before the assign picker opens. Kept in
  *  step with the `hold-progress` animation in globals.css. */
@@ -149,7 +150,7 @@ export function MesBoard({ viewSwitch }: { viewSwitch: ReactNode }) {
   const assignableOperators = useMemo(
     () =>
       staff
-        .filter((s) => roleCan(s.role, "mes.claim"))
+        .filter((s) => staffCan(s, "mes.claim"))
         .filter(
           (s) => s.mesStage == null || (s.mesStage === currentStage?.sequenceNumber && !currentStage?.supervised),
         )

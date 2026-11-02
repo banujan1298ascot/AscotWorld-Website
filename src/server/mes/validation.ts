@@ -3,7 +3,8 @@
  * split as batch-book/validation.ts: no DB here, so "who may do what" is
  * unit-testable directly.
  */
-import { OPERATOR_ROLES, roleCan, type OperatorRole } from "@/lib/types";
+import { staffCan } from "@/lib/access";
+import { OPERATOR_ROLES, type OperatorRole } from "@/lib/types";
 import type { ActingStaff } from "../actingStaff";
 
 export type Verdict = { ok: true } | { ok: false; error: string };
@@ -22,7 +23,7 @@ export interface OpenTransitionForAuth {
 
 /** Can `staff` claim an unclaimed batch from a stage's Incoming/Returned queue? */
 export function canClaim(staff: ActingStaff): Verdict {
-  return roleCan(staff.role, "mes.claim")
+  return staffCan(staff, "mes.claim")
     ? { ok: true }
     : { ok: false, error: "Your role cannot claim batches at this stage." };
 }
@@ -54,7 +55,7 @@ export function canActOnTransition(
 
 /** Can `staff` pass a claimed batch forward to the next stage? */
 export function canForward(staff: ActingStaff): Verdict {
-  return roleCan(staff.role, "mes.pass")
+  return staffCan(staff, "mes.pass")
     ? { ok: true }
     : { ok: false, error: "Your role cannot pass batches to the next stage." };
 }
@@ -70,7 +71,7 @@ export function canSendBack(
   stage: StageForAuth,
   notes: string | null | undefined,
 ): Verdict {
-  if (!roleCan(staff.role, "mes.pass")) {
+  if (!staffCan(staff, "mes.pass")) {
     return { ok: false, error: "Your role cannot send batches back." };
   }
   if (stage.sequenceNumber <= 2) {
@@ -92,7 +93,7 @@ export function canSendBack(
  * separate capability.
  */
 export function canFail(staff: ActingStaff, stage: StageForAuth, notes: string | null | undefined): Verdict {
-  if (!roleCan(staff.role, "mes.pass")) {
+  if (!staffCan(staff, "mes.pass")) {
     return { ok: false, error: "Your role cannot fail batches." };
   }
   if (!stage.failAuthority) {
@@ -163,7 +164,7 @@ export function canRecordLabels(
       error: `Only Station ${LABEL_STATION_SEQUENCE} can record labels — this account is Station ${staff.mesStage}'s.`,
     };
   }
-  if (!roleCan(staff.role, "mes.claim")) {
+  if (!staffCan(staff, "mes.claim")) {
     return { ok: false, error: "Your role cannot record labels." };
   }
   if (stage.operatorRole && staff.operatorRole !== stage.operatorRole) {

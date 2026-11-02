@@ -1,4 +1,5 @@
-import { boolean, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import type { StaffAccess } from "@/lib/access";
 import { staffRoleEnum } from "./enums";
 
 /**
@@ -27,6 +28,9 @@ export const staff = pgTable("staff", {
   /** Which kind of MES operator they are, if any (see OperatorRole in
    *  src/lib/types.ts) — some stations only accept one kind. */
   operatorRole: text("operator_role"),
+  /** Where their access differs from their role's, as set on the Team page
+   *  (src/lib/access.ts). Null for the role's defaults. */
+  access: jsonb("access").$type<StaffAccess>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

@@ -6,6 +6,8 @@
  * persistence stack without changing anything here.
  */
 
+import type { StaffAccess } from "./access";
+
 export interface Entity {
   id: string;
   createdAt: string;
@@ -182,6 +184,12 @@ export interface StaffMember extends Entity {
    * that type. Set on the Team page.
    */
   operatorRole?: OperatorRole | null;
+  /**
+   * Where this person's access differs from their role's — sections opened
+   * or hidden, abilities given or taken away. Set on the Team page by
+   * whoever manages users; see src/lib/access.ts.
+   */
+  access?: StaffAccess | null;
 }
 
 /* -------------------------------------------------------------------------- */

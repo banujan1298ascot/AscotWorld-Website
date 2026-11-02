@@ -7,11 +7,13 @@ import {
   CaretLeft,
   CaretRight,
   EnvelopeSimple,
+  GearSix,
   Phone,
   UserPlus,
   WarningCircle,
 } from "@phosphor-icons/react/dist/ssr";
 import { ShiftPill } from "@/components/domain";
+import { EMAIL_PATTERN, ManageUserDialog, computeInitials } from "@/components/team/ManageUserDialog";
 import {
   Avatar,
   Button,
@@ -25,6 +27,7 @@ import {
   Select,
   Skeleton,
 } from "@/components/ui";
+import { hasCustomAccess } from "@/lib/access";
 import { useAuth } from "@/lib/auth";
 import { departmentCollection, shiftCollection, staffCollection } from "@/lib/seed";
 import { useCollection } from "@/lib/storage";
@@ -44,7 +47,7 @@ const iso = (d: Date) => format(d, "yyyy-MM-dd");
 const SHIFT_CYCLE: ShiftType[] = ["early", "late", "night", "holiday", "absent"];
 
 export default function TeamPage() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const { items: staff, ready } = useCollection(staffCollection);
   const { items: shifts } = useCollection(shiftCollection);
   const { items: departmentRecords } = useCollection(departmentCollection);
@@ -54,6 +57,7 @@ export default function TeamPage() {
   const [departmentFilter, setDepartmentFilter] = useState("all");
   const [addingEmployee, setAddingEmployee] = useState(false);
   const [addingDepartment, setAddingDepartment] = useState(false);
+  const [managing, setManaging] = useState<StaffMember | null>(null);
 
   const weekStart = useMemo(
     () => addWeeks(startOfWeek(new Date(), { weekStartsOn: 1 }), weekOffset),
@@ -308,7 +312,13 @@ export default function TeamPage() {
           </div>
         </>
       ) : (
-        <DirectoryGrid staff={visibleStaff} canManage={can("team.manage")} />
+        <DirectoryGrid
+          staff={visibleStaff}
+          canManage={can("team.manage")}
+          // An admin's account is for another admin to change.
+          canManagePerson={(person) => can("team.manage") && (person.role !== "admin" || user?.role === "admin")}
+          onManage={setManaging}
+        />
       )}
 
       {addingDepartment ? (
@@ -316,6 +326,18 @@ export default function TeamPage() {
           existingNames={departmentNames}
           onClose={() => setAddingDepartment(false)}
           onCreated={() => setAddingDepartment(false)}
+        />
+      ) : null}
+
+      {managing && user ? (
+        <ManageUserDialog
+          // A fresh dialog for each person, so nothing carries over.
+          key={managing.id}
+          person={managing}
+          me={user}
+          allStaff={staff}
+          departments={departmentNames}
+          onClose={() => setManaging(null)}
         />
       ) : null}
 
@@ -401,16 +423,6 @@ function DepartmentDialog({
 /* -------------------------------------------------------------------------- */
 /* Add employee                                                               */
 /* -------------------------------------------------------------------------- */
-
-/** First + last initial (or first two letters of a single-word name). */
-function computeInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface EmployeeForm {
   name: string;
@@ -508,8 +520,8 @@ function EmployeeDialog({
       <div className="mb-4 flex items-center gap-3 rounded-md bg-[var(--surface-sunken)] px-3 py-2.5">
         <Avatar initials={values.name ? computeInitials(values.name) : "?"} size={36} />
         <p className="text-xs text-[var(--muted-foreground)]">
-          Their access is decided entirely by the role you choose below — pick the one that
-          matches what they should be able to see and change.
+          Their access starts from the role you choose below. Once they&apos;re added, use
+          Manage on their card to fine-tune what they can see and do.
         </p>
       </div>
 
@@ -629,7 +641,7 @@ function EmployeeDialog({
 
         <p className="flex items-start gap-2 rounded-md bg-[var(--surface-sunken)] px-3 py-2 text-xs text-[var(--muted-foreground)]">
           <WarningCircle size={14} weight="fill" className="mt-px shrink-0" />
-          Only Admin/Manager accounts can add new employees or change access.
+          Only admins, and people an admin lets manage users, can add employees or change access.
         </p>
       </div>
     </Modal>
@@ -676,7 +688,17 @@ function OperatorTypeSelect({
   );
 }
 
-function DirectoryGrid({ staff, canManage }: { staff: StaffMember[]; canManage: boolean }) {
+function DirectoryGrid({
+  staff,
+  canManage,
+  canManagePerson,
+  onManage,
+}: {
+  staff: StaffMember[];
+  canManage: boolean;
+  canManagePerson: (person: StaffMember) => boolean;
+  onManage: (person: StaffMember) => void;
+}) {
   // Group by department so the directory reads like the org, not a flat list.
   const byDepartment = useMemo(() => {
     const map = new Map<Department, StaffMember[]>();
@@ -711,6 +733,14 @@ function DirectoryGrid({ staff, canManage }: { staff: StaffMember[]; canManage: 
                   <p className="mt-0.5 inline-block rounded bg-[var(--surface-sunken)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--muted-foreground)]">
                     {ROLES[person.role].label}
                   </p>
+                  {hasCustomAccess(person.access) ? (
+                    <p
+                      className="ml-1 mt-0.5 inline-block rounded bg-[var(--warning-bg,var(--surface-sunken))] px-1.5 py-0.5 text-[10px] font-bold text-[var(--warning)]"
+                      title="Their access has been changed from their role's defaults"
+                    >
+                      Custom access
+                    </p>
+                  ) : null}
                   {/* Which MES stations they can be assigned at — managers
                       set it here; everyone else just sees it. */}
                   {canManage ? (
@@ -748,6 +778,12 @@ function DirectoryGrid({ staff, canManage }: { staff: StaffMember[]; canManage: 
                     ) : null}
                   </div>
                 </div>
+                {canManagePerson(person) ? (
+                  <Button size="sm" variant="secondary" onClick={() => onManage(person)} aria-label={`Manage ${person.name}`}>
+                    <GearSix size={15} weight="bold" />
+                    Manage
+                  </Button>
+                ) : null}
               </Card>
             ))}
           </div>

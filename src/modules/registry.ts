@@ -13,6 +13,7 @@ import {
 // Type-only import from the package root — erased at compile time, so it does
 // not pull in the icon barrel at runtime.
 import type { Icon } from "@phosphor-icons/react";
+import { sectionOpen, type PersonWithAccess } from "@/lib/access";
 import type { Role } from "@/lib/types";
 
 /* ============================================================================
@@ -254,14 +255,22 @@ export const MODULES: PortalModule[] = [
 /* Lookups                                                                    */
 /* -------------------------------------------------------------------------- */
 
-export function canAccessModule(module: PortalModule, role: Role): boolean {
-  if (!module.enabled) return false;
+/** Whether the role opens this section by default — before any change
+ *  made for one person on the Team page. */
+export function roleOpensModule(module: PortalModule, role: Role): boolean {
   return module.roles === "all" || module.roles.includes(role);
 }
 
-/** Every module this role may open, in display order. */
-export function modulesForRole(role: Role): PortalModule[] {
-  return MODULES.filter((m) => canAccessModule(m, role)).sort(
+/** Whether this person may open the section: their role's default, unless
+ *  it's been opened or hidden for them (src/lib/access.ts). */
+export function canAccessModule(module: PortalModule, person: PersonWithAccess): boolean {
+  if (!module.enabled) return false;
+  return sectionOpen(person, module.id, roleOpensModule(module, person.role));
+}
+
+/** Every module this person may open, in display order. */
+export function modulesForRole(person: PersonWithAccess): PortalModule[] {
+  return MODULES.filter((m) => canAccessModule(m, person)).sort(
     (a, b) =>
       MODULE_GROUPS[a.group].order - MODULE_GROUPS[b.group].order ||
       a.order - b.order,
@@ -269,17 +278,17 @@ export function modulesForRole(role: Role): PortalModule[] {
 }
 
 /** Up to five destinations for the mobile bottom nav, in display order. */
-export function bottomNavForRole(role: Role): PortalModule[] {
-  return modulesForRole(role)
+export function bottomNavForRole(person: PersonWithAccess): PortalModule[] {
+  return modulesForRole(person)
     .filter((m) => m.showInBottomNav)
     .slice(0, 5);
 }
 
 /** Modules grouped for the sidebar, skipping groups this role cannot see. */
 export function groupedModulesForRole(
-  role: Role,
+  person: PersonWithAccess,
 ): Array<{ group: ModuleGroup; label: string; modules: PortalModule[] }> {
-  const available = modulesForRole(role);
+  const available = modulesForRole(person);
   return (Object.keys(MODULE_GROUPS) as ModuleGroup[])
     .sort((a, b) => MODULE_GROUPS[a].order - MODULE_GROUPS[b].order)
     .map((group) => ({
@@ -299,9 +308,12 @@ export function groupedModulesForRole(
  * login. Stage 1 (Batch Book Entry) has no queue of its own, so it lands in
  * the Batch Book instead.
  */
-export function homeRouteFor(staff: { mesStage?: number | null }): string {
-  if (staff.mesStage == null) return "/dashboard";
-  return staff.mesStage === 1 ? "/batch-book" : "/mes";
+export function homeRouteFor(staff: { mesStage?: number | null } & Partial<PersonWithAccess>): string {
+  const preferred = staff.mesStage == null ? "/dashboard" : staff.mesStage === 1 ? "/batch-book" : "/mes";
+  if (!staff.role) return preferred;
+  // Somewhere they can actually open, if that's been hidden from them.
+  const open = modulesForRole({ role: staff.role, access: staff.access });
+  return open.some((m) => m.href === preferred) ? preferred : (open[0]?.href ?? preferred);
 }
 
 /** Resolve the module owning a pathname, for active-state and guarding. */

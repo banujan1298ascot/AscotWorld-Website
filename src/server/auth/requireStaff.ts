@@ -18,7 +18,8 @@
  * ========================================================================= */
 import { eq } from "drizzle-orm";
 import { NextRequest } from "next/server";
-import { roleCan, type Capability } from "@/lib/types";
+import { staffCan } from "@/lib/access";
+import type { Capability } from "@/lib/types";
 import { ApiError } from "../apiError";
 import type { ActingStaff } from "../actingStaff";
 import { db } from "../db/client";
@@ -38,13 +39,13 @@ export async function requireStaff(request: NextRequest): Promise<ActingStaff> {
   const [row] = await db.select().from(staff).where(eq(staff.id, id)).limit(1);
   if (!row || !row.isActive) throw new ApiError(401, "Unknown or inactive staff id.");
 
-  return { id: row.id, role: row.role, mesStage: row.mesStage };
+  return { id: row.id, role: row.role, mesStage: row.mesStage, access: row.access };
 }
 
-/** Throws a 403 ApiError if `staffMember`'s role lacks `capability`. */
+/** Throws a 403 ApiError if `staffMember` lacks `capability`. */
 export function requireCapability(staffMember: ActingStaff, capability: Capability): void {
-  if (!roleCan(staffMember.role, capability)) {
-    throw new ApiError(403, `Your role cannot perform this action (${capability}).`);
+  if (!staffCan(staffMember, capability)) {
+    throw new ApiError(403, `Your account isn't allowed to do this (${capability}).`);
   }
 }
 

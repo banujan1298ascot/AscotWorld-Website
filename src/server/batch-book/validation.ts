@@ -10,7 +10,7 @@ import {
   type DosageForm,
   type PackUnit,
 } from "@/lib/products";
-import { roleCan } from "@/lib/types";
+import { staffCan } from "@/lib/access";
 import type { ActingStaff } from "../actingStaff";
 
 export type { ActingStaff };
@@ -28,7 +28,7 @@ function isOwnerOrAdmin(staff: ActingStaff, batch: BatchForAuth): boolean {
 
 /** Can `staff` create a new draft? (spec 2.1: any data-entry-capable role.) */
 export function canCreateDraft(staff: ActingStaff): Verdict {
-  return roleCan(staff.role, "batchbook.create")
+  return staffCan(staff, "batchbook.create")
     ? { ok: true }
     : { ok: false, error: "Your role cannot create Batch Book entries." };
 }
@@ -43,7 +43,7 @@ export function canEditBatch(
   reason: string | null | undefined,
 ): Verdict {
   if (batch.status === "DRAFT") {
-    if (!roleCan(staff.role, "batchbook.editOwnDraft")) {
+    if (!staffCan(staff, "batchbook.editOwnDraft")) {
       return { ok: false, error: "Your role cannot edit Batch Book drafts." };
     }
     if (!isOwnerOrAdmin(staff, batch)) {
@@ -53,7 +53,7 @@ export function canEditBatch(
   }
 
   // Confirmed, historical, or anything past DRAFT: a logged supervisor/QA edit.
-  if (!roleCan(staff.role, "batchbook.editConfirmed")) {
+  if (!staffCan(staff, "batchbook.editConfirmed")) {
     return { ok: false, error: "Your role cannot edit a confirmed batch record." };
   }
   if (!reason || reason.trim().length === 0) {
@@ -218,7 +218,7 @@ export function canConfirmBatch(staff: ActingStaff, batch: BatchForAuth): Verdic
   if (batch.status !== "DRAFT") {
     return { ok: false, error: "Only a draft can be confirmed." };
   }
-  if (!roleCan(staff.role, "batchbook.confirm")) {
+  if (!staffCan(staff, "batchbook.confirm")) {
     return { ok: false, error: "Your role cannot confirm Batch Book entries." };
   }
   if (!isOwnerOrAdmin(staff, batch)) {

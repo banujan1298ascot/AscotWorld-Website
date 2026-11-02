@@ -83,7 +83,7 @@ export default function WorksheetsRoute() {
  * production manager) — the server enforces the same.
  */
 function WorksheetsPage() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const { worksheets, canManage, ready, error, refresh } = useWorksheets();
   const formulas = useFormulas();
   const params = useSearchParams();
@@ -116,7 +116,8 @@ function WorksheetsPage() {
   );
 
   if (!user) return null;
-  const isAdmin = user.role === "admin";
+  // Admins, and anyone given "manage users" on the Team page.
+  const managesAccess = can("team.manage");
 
   /** Saves the file to the device, under its original name. */
   async function downloadFile(worksheet: Worksheet) {
@@ -142,7 +143,7 @@ function WorksheetsPage() {
         description="Batch manufacturing records (BMRs) for every product. Approved is the version in use; older versions move to Archived when a new one is uploaded. Generated holds each batch's filled-in copy."
         actions={
           <>
-            {isAdmin ? (
+            {managesAccess ? (
               <Button size="sm" variant="secondary" onClick={() => setManagingAccess(true)}>
                 <UserGear size={15} weight="bold" />
                 Who can upload

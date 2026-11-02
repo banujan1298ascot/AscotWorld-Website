@@ -16,6 +16,7 @@ import {
   Skeleton,
   Textarea,
 } from "@/components/ui";
+import { staffCan } from "@/lib/access";
 import { useAuth } from "@/lib/auth";
 import { useDepartments, type BatchRecord } from "@/lib/batchBook";
 import { canRecordLabels, LABEL_STATION_SEQUENCE, useAllStageQueues, useStages, type StageDefinition } from "@/lib/mes";
@@ -25,7 +26,7 @@ import { StationCounters } from "@/components/mes/StationCounters";
 import { staffCollection } from "@/lib/seed";
 import { stationDotStyle, usePageStation } from "@/lib/stationColors";
 import { useCollection } from "@/lib/storage";
-import { OPERATOR_ROLES, roleCan, type StaffMember } from "@/lib/types";
+import { OPERATOR_ROLES, type StaffMember } from "@/lib/types";
 
 /* ============================================================================
  * MES — table view
@@ -171,7 +172,7 @@ export function MesTable({ viewSwitch }: { viewSwitch: ReactNode }) {
    *  operator, so it's left off: assignments there time the operators. */
   const operatorsFor = (stage: StageDefinition): StaffMember[] =>
     staff
-      .filter((s) => roleCan(s.role, "mes.claim"))
+      .filter((s) => staffCan(s, "mes.claim"))
       .filter((s) => s.mesStage == null || (s.mesStage === stage.sequenceNumber && !stage.supervised))
       // Stations that only take one kind of operator (Checks 2-4).
       .filter((s) => !stage.operatorRole || s.operatorRole === stage.operatorRole)

@@ -10,13 +10,23 @@
  */
 import { and, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import { cleanAccess, type StaffAccess } from "@/lib/access";
 import type { Role } from "@/lib/types";
 import { ApiError } from "../apiError";
 import { db } from "../db/client";
 import { appRecords, staff } from "../db/schema";
-import { canRead, canWrite, checkRecord, MAX_SEED_ITEMS, ruleFor, type CollectionRule, type Verdict } from "./rules";
+import {
+  canRead,
+  canWrite,
+  checkRecord,
+  checkStaffChange,
+  MAX_SEED_ITEMS,
+  ruleFor,
+  type CollectionRule,
+  type Verdict,
+} from "./rules";
 
-type Caller = { id: string; role: Role } | null;
+type Caller = { id: string; role: Role; access?: StaffAccess | null } | null;
 type Data = Record<string, unknown>;
 
 function enforce(verdict: Verdict): void {
@@ -74,8 +84,14 @@ async function findRecord(collection: string, id: string): Promise<Data | null> 
 export async function putRecord(collection: string, id: string, data: unknown, caller: Caller): Promise<void> {
   const rule = requireRule(collection);
   enforce(checkRecord(id, data));
-  const next = data as Data;
-  enforce(canWrite(rule, caller, await findRecord(collection, id), next));
+  const next = { ...(data as Data) };
+  const existing = await findRecord(collection, id);
+  enforce(canWrite(rule, caller, existing, next));
+  if (collection === "staff" && caller) {
+    // Only what an access record may hold, whatever was sent.
+    next.access = cleanAccess(next.access);
+    enforce(checkStaffChange(caller, existing, next, await otherStaff(id)));
+  }
 
   await db
     .insert(appRecords)
@@ -93,10 +109,20 @@ export async function deleteRecord(collection: string, id: string, caller: Calle
   const existing = await findRecord(collection, id);
   if (!existing) return;
   enforce(canWrite(rule, caller, existing, null));
+  if (collection === "staff" && caller) enforce(checkStaffChange(caller, existing, null, await otherStaff(id)));
   await db.delete(appRecords).where(and(eq(appRecords.collection, collection), eq(appRecords.id, id)));
   // Keep the server-side identity (foreign keys point at it) but stop it
   // signing in.
   if (collection === "staff") await db.update(staff).set({ isActive: false }).where(eq(staff.id, id));
+}
+
+/** Everyone on the staff list except `id`. */
+async function otherStaff(id: string): Promise<Data[]> {
+  const rows = await db
+    .select({ data: appRecords.data })
+    .from(appRecords)
+    .where(and(eq(appRecords.collection, "staff"), sql`${appRecords.id} <> ${id}`));
+  return rows.map((r) => r.data as Data);
 }
 
 /**
@@ -135,7 +161,7 @@ export async function resetAll(caller: Caller): Promise<void> {
 const ROLES: Role[] = ["admin", "production", "qa", "viewer"];
 
 async function mirrorStaff(person: Data): Promise<void> {
-  const { id, name, role, department, email, mesStage, operatorRole } = person as {
+  const { id, name, role, department, email, mesStage, operatorRole, access } = person as {
     id: string;
     name?: string;
     role?: string;
@@ -143,7 +169,9 @@ async function mirrorStaff(person: Data): Promise<void> {
     email?: string;
     mesStage?: number | null;
     operatorRole?: string | null;
+    access?: unknown;
   };
+  const accessChanges = cleanAccess(access);
   const station = typeof mesStage === "number" ? mesStage : null;
   const operatorType = typeof operatorRole === "string" && operatorRole ? operatorRole : null;
   if (!name || !email || !ROLES.includes(role as Role)) return;
@@ -158,6 +186,7 @@ async function mirrorStaff(person: Data): Promise<void> {
         email,
         mesStage: station,
         operatorRole: operatorType,
+        access: accessChanges,
         isActive: true,
       })
       .onConflictDoUpdate({
@@ -169,6 +198,7 @@ async function mirrorStaff(person: Data): Promise<void> {
           email,
           mesStage: station,
           operatorRole: operatorType,
+          access: accessChanges,
           isActive: true,
           updatedAt: sql`now()`,
         },

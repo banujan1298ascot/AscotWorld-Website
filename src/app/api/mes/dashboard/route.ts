@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { roleCan } from "@/lib/types";
+import { staffCan } from "@/lib/access";
 import { ApiError, apiErrorResponse } from "@/server/apiError";
 import { requireCapability, requireStaff } from "@/server/auth/requireStaff";
 import {
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
       getCycleTimeSummary(departmentId, days),
     ]);
 
-    const operatorStageDurations = roleCan(actingStaff.role, "dashboard.viewOperatorMetrics")
+    const operatorStageDurations = staffCan(actingStaff, "dashboard.viewOperatorMetrics")
       ? await getOperatorStageDurations(departmentId)
       : undefined;
 
