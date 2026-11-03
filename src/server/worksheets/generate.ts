@@ -6,9 +6,10 @@
  * GENERATED worksheet tied to the batch; the approved master is only ever
  * read, never changed.
  *
- * When the product has a formula (src/lib/formulaRules.ts — solutions
- * entered on the Worksheets page), each ingredient's Quantity Required, the
- * final product quantity and the working are filled in too
+ * When the product has a formula (src/lib/formulaRules.ts — solutions,
+ * suspensions, creams and ointments, entered on the Worksheets page), each
+ * ingredient's Quantity Required, the final product quantity and the
+ * working are filled in too
  * (./quantities.ts works out where). Anything that can't be placed on the
  * form goes on a calculation page added to the end.
  *
@@ -18,7 +19,7 @@
 import { asc, eq } from "drizzle-orm";
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib";
 import { staffCan } from "@/lib/access";
-import { FORMULA_BASES, calculateBatch, plain, quantityText, type Calculation } from "@/lib/formulaRules";
+import { FORMULA_FORMS, basisLabel, calculateBatch, plain, quantityText, type Calculation } from "@/lib/formulaRules";
 import { WORKSHEET_CHUNK_BYTES, chunkCountFor, fileExtension } from "@/lib/worksheetRules";
 import { formatPack } from "@/lib/products";
 import { ApiError } from "../apiError";
@@ -45,22 +46,24 @@ export type GenerateResult =
       notFound: string[];
       /** The ingredient quantities, when the product has a formula. */
       calculation: GeneratedCalculation | null;
-      /** Why there are no quantities, for a solution that should have them. */
+      /** Why there are no quantities, for a product that should have them. */
       calculationMessage: string | null;
     }
   | { status: "no-match" | "unsupported" | "failed"; message: string };
 
 export interface GeneratedCalculation {
   formulaVersion: number;
-  totalVolumeMl: number;
-  finalQuantityMl: number;
+  unit: "ml" | "g";
+  /** Packs × pack size + the overage. */
+  total: number;
+  overage: number;
+  finalQuantity: number;
   quantities: { name: string; quantity: string; optional: boolean }[];
   /** True when some of it couldn't be placed on the form, so it's on a
    *  calculation page added to the end. */
   addedPage: boolean;
 }
 
-const LIQUID_FORMS = new Set(["SOLUTION", "SUSPENSION"]);
 
 /** Ink for everything written onto the copy — a print-blue, so filled-in
  *  values stand apart from the master's own black. */
@@ -169,17 +172,17 @@ export async function generateWorksheetForBatch(batchId: string, actor: ActingSt
   let calc: Calculation | null = null;
   let calculationMessage: string | null = null;
   if (!formula) {
-    if (product.dosageForm && LIQUID_FORMS.has(product.dosageForm)) {
+    if (product.dosageForm && FORMULA_FORMS[product.dosageForm]) {
       calculationMessage = `There's no formula for ${productLabel}, so the quantities weren't worked out — add one under Formulas on the Worksheets page.`;
     }
   } else if (!batch.quantity || !batch.packSize) {
-    calculationMessage = "The quantities weren't worked out — the batch needs its number of bottles and the volume of each.";
-  } else if (batch.packUnit !== "ml") {
-    calculationMessage = `The quantities weren't worked out — the formula needs the pack size in ml, not ${batch.packUnit ?? "no unit"}.`;
+    calculationMessage = "The quantities weren't worked out — the batch needs its number of packs and the size of each.";
+  } else if (batch.packUnit !== formula.baseUnit) {
+    calculationMessage = `The quantities weren't worked out — the formula needs the pack size in ${formula.baseUnit}, not ${batch.packUnit ?? "no unit"}.`;
   } else {
     const result = calculateBatch(toDefinition(formula), {
-      bottles: Number(batch.quantity),
-      packSizeMl: Number(batch.packSize),
+      packs: Number(batch.quantity),
+      packSize: Number(batch.packSize),
       strength: batch.strength ?? product.strength,
     });
     if (result.ok) calc = result.value;
@@ -329,8 +332,10 @@ export async function generateWorksheetForBatch(batchId: string, actor: ActingSt
       calc && formula
         ? {
             formulaVersion: formula.version,
-            totalVolumeMl: calc.totalVolumeMl,
-            finalQuantityMl: calc.finalQuantityMl,
+            unit: calc.unit,
+            total: calc.total,
+            overage: calc.overage,
+            finalQuantity: calc.finalQuantity,
             quantities: calc.lines.map((l) => ({ name: l.name, quantity: quantityText(l), optional: l.optional })),
             addedPage,
           }
@@ -377,12 +382,12 @@ function addCalculationPage(
   for (const l of calc.lines) {
     y -= 16;
     line(regular, `${l.name}${l.optional ? " (optional)" : ""}`.slice(0, 60), 10);
-    line(regular, FORMULA_BASES.find((b) => b.value === l.basis)?.label ?? "", 10, 300);
+    line(regular, basisLabel(l.basis, calc.unit), 10, 300);
     line(bold, quantityText(l), 10, 420);
   }
   y -= 22;
   line(bold, "Final product quantity", 10);
-  line(bold, `${plain(calc.bottles)} x ${plain(calc.packSizeMl)} ml = ${plain(calc.finalQuantityMl)} ml`, 10, 420);
+  line(bold, `${plain(calc.packs)} x ${plain(calc.packSize)} ${calc.unit} = ${plain(calc.finalQuantity)} ${calc.unit}`, 10, 420);
 
   y -= 30;
   line(bold, "CALCULATION", 10);

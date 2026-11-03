@@ -7,7 +7,7 @@
  * in src/lib/formulaRules.ts.
  */
 import { and, asc, eq, isNull } from "drizzle-orm";
-import { checkFormula, type FormulaDefinition, type FormulaIngredient } from "@/lib/formulaRules";
+import { checkFormula, type BaseUnit, type FormulaDefinition, type FormulaIngredient, type OverageRule } from "@/lib/formulaRules";
 import type { DosageForm } from "@/lib/products";
 import { ApiError } from "../apiError";
 import type { ActingStaff } from "../actingStaff";
@@ -21,7 +21,8 @@ export interface FormulaView {
   medicineName: string;
   dosageForm: DosageForm;
   strength: string | null;
-  overageMl: number;
+  baseUnit: BaseUnit;
+  overages: OverageRule[];
   ingredients: FormulaIngredient[];
   notes: string | null;
   version: number;
@@ -39,7 +40,8 @@ export function toDefinition(row: FormulaRow): FormulaDefinition {
     medicineName: row.medicineName,
     dosageForm: row.dosageForm,
     strength: row.strength,
-    overageMl: Number(row.overageMl),
+    baseUnit: row.baseUnit,
+    overages: row.overages,
     ingredients: row.ingredients,
     notes: row.notes,
   };
@@ -70,7 +72,8 @@ export async function listFormulas(): Promise<FormulaView[]> {
     medicineName: f.medicineName,
     dosageForm: f.dosageForm,
     strength: f.strength,
-    overageMl: Number(f.overageMl),
+    baseUnit: f.baseUnit,
+    overages: f.overages,
     ingredients: f.ingredients,
     notes: f.notes,
     version: f.version,
@@ -102,7 +105,7 @@ export async function createFormula(input: unknown, actor: ActingStaff): Promise
   await refuseDuplicate(formula);
   const [row] = await db
     .insert(productFormulas)
-    .values({ ...formula, overageMl: String(formula.overageMl), createdBy: actor.id })
+    .values({ ...formula, createdBy: actor.id })
     .returning({ id: productFormulas.id });
   return row;
 }
@@ -127,7 +130,6 @@ export async function replaceFormula(id: string, input: unknown, actor: ActingSt
       .insert(productFormulas)
       .values({
         ...formula,
-        overageMl: String(formula.overageMl),
         scanLayout: old.scanLayout,
         version: old.version + 1,
         createdBy: actor.id,

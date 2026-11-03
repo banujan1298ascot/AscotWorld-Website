@@ -370,8 +370,9 @@ function WorksheetNotice({
             {result.calculation ? (
               <div className="mt-2">
                 <p className="text-xs font-bold text-foreground">
-                  Quantities required — {result.calculation.totalVolumeMl} ml made, {result.calculation.finalQuantityMl} ml
-                  supplied (formula version {result.calculation.formulaVersion})
+                  Quantities required — {result.calculation.total} {result.calculation.unit} made (including{" "}
+                  {result.calculation.overage} {result.calculation.unit} overage), {result.calculation.finalQuantity}{" "}
+                  {result.calculation.unit} supplied (formula version {result.calculation.formulaVersion})
                   {result.calculation.addedPage ? ", with the working on a page added at the end" : ""}
                 </p>
                 <ul className="mt-1 grid gap-x-6 gap-y-0.5 text-[13px] sm:grid-cols-2">

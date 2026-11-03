@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "./apiClient";
 import { useAuth } from "./auth";
-import type { FormulaDefinition, FormulaIngredient } from "./formulaRules";
+import type { BaseUnit, FormulaDefinition, FormulaIngredient, OverageRule } from "./formulaRules";
 import type { DosageForm } from "./products";
 
 /** Mirrors FormulaView in src/server/formulas/service.ts. */
@@ -17,7 +17,8 @@ export interface Formula {
   medicineName: string;
   dosageForm: DosageForm;
   strength: string | null;
-  overageMl: number;
+  baseUnit: BaseUnit;
+  overages: OverageRule[];
   ingredients: FormulaIngredient[];
   notes: string | null;
   version: number;

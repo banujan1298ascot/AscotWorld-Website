@@ -107,31 +107,49 @@ entered at Check 1, must be after manufacture) feed the dates.
 
 ## Formulas and quantities
 
-The **Formulas** tab holds each solution's formula as data
-(`product_formulas`, rules in `src/lib/formulaRules.ts`), so a new product
-needs a new definition, not new code. People with worksheet access add and
-edit them; everyone can read them and **Try it** with a number of bottles.
-Saving a change makes the next version and retires the old one — nothing is
-edited in place, so a generated worksheet's numbers trace back to the
-version they came from.
+The **Formulas** tab holds the formula for each solution, suspension, cream
+and ointment as data (`product_formulas`, rules in
+`src/lib/formulaRules.ts`), so a new product needs a new definition, not
+new code. People with worksheet access add and edit them; everyone can read
+them and **Try it** with a number of packs. Saving a change makes the next
+version and retires the old one. Nothing is edited in place, so a generated
+worksheet's numbers trace back to the version they came from.
+
+Solutions and suspensions are made by volume (ml), creams and ointments by
+weight (g). The formula's **Made by** setting is that base unit, and the
+batch's pack size has to be in it.
 
 Each ingredient has a basis:
 
 | Basis | Quantity required |
 |---|---|
-| Per 100 ml (propylene glycol 8 ml) | amount × total volume ÷ 100 |
-| Per dose (melatonin 5 mg in 5 ml) | strength × total volume ÷ dose volume. Leave the amount blank to follow the batch's strength ("5mg/5ml"). |
-| To volume (diluent, preserved water) | made up to the total volume — at most one per formula |
+| Per 100 ml / g (propylene glycol 8 ml) | amount × total ÷ 100 |
+| Per dose (melatonin 5 mg in 5 ml) | strength × total ÷ dose. Leave the amount blank to follow the batch's strength: "5mg/5ml", or "20mg/g" and "1%" for creams. |
+| To volume / weight (diluent, cream base) | made up to the total, at most one per formula |
 | Fixed | the stated amount, unscaled |
 
-- **Total volume** = bottles × (pack size + overage). The overage is per
-  bottle and set on the formula (10 ml for solutions).
-- **Final product quantity** = bottles × pack size, without the overage.
+**Overage table.** Each formula has a table of how much extra to make. Each
+row has:
+
+- a pack size, or blank for any pack size;
+- a range of packs ("from" to "to", with "to" blank for "and over");
+- an amount, added **once for the whole batch**.
+
+A row for the batch's exact pack size wins over an "any pack size" row.
+Rows for the same pack size can't overlap. A batch no row covers isn't
+worked out, and the Batch Book says so, rather than guessing. Formulas that
+had the old single per-bottle overage were moved to one "any pack size, 1 or
+more packs" row of the same amount. (The old `overage_ml` column is still
+there, unused, so the previously deployed app kept working during the
+switch. A later migration can drop it.)
+
+- **Total** = packs × pack size + overage.
+- **Final product quantity** = packs × pack size, without the overage.
 - Mass converts between mcg, mg and g for the unit the worksheet's column
-  uses. Nothing is rounded until the value shown: g to 3 dp and ml to 1 dp
+  uses. Nothing is rounded until the value shown: g to 3 dp and ml to 1 dp,
   unless the ingredient sets its own decimal places.
-- Zero or negative inputs are refused, as are ingredients in ml that add
-  up to the whole batch when something is made up to volume.
+- Zero or negative inputs are refused, as are ingredients that add up to the
+  whole batch when something is made up to it.
 
 When a batch is confirmed and its product has a formula (same medicine and
 type, and its strength or none), `generate.ts` works the quantities out and

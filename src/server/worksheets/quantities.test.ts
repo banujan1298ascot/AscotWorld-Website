@@ -80,7 +80,8 @@ const alimemazine: FormulaDefinition = {
   medicineName: "Alimemazine",
   dosageForm: "SOLUTION",
   strength: null,
-  overageMl: 10,
+  baseUnit: "ml",
+  overages: [{ packSize: null, fromPacks: 1, toPacks: null, amount: 10 }],
   notes: null,
   ingredients: [
     ingredient("api", "Alimemazine tartrate BP", { basis: "PER_DOSE", amountUnit: "mg", decimals: 3 }),
@@ -96,7 +97,7 @@ const alimemazine: FormulaDefinition = {
 const measure: Measure = (text, size) => text.length * size * 0.5;
 
 function calc() {
-  const result = calculateBatch(alimemazine, { bottles: 1, packSizeMl: 150, strength: "7.5mg/5ml" });
+  const result = calculateBatch(alimemazine, { packs: 1, packSize: 150, strength: "7.5mg/5ml" });
   if (!result.ok) throw new Error(result.error);
   return result.value;
 }

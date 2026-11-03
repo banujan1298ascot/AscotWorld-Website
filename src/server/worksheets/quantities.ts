@@ -92,9 +92,9 @@ function finalDraws(
     size,
     text,
   });
-  const draws = [centred(String(calc.bottles), bottles), centred(String(calc.packSizeMl), packSize)];
+  const draws = [centred(String(calc.packs), bottles), centred(String(calc.packSize), packSize)];
   if (after !== null) {
-    draws.push({ page, x: after + 4, y: packSize.y, size: 8, text: `= ${calc.finalQuantityMl} ml` });
+    draws.push({ page, x: after + 4, y: packSize.y, size: 8, text: `= ${calc.finalQuantity} ${calc.unit}` });
   }
   return draws;
 }

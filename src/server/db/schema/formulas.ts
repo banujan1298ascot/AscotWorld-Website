@@ -1,5 +1,5 @@
 import { index, integer, jsonb, numeric, pgTable, text, timestamp, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
-import type { FormulaIngredient, ScanLayout } from "@/lib/formulaRules";
+import type { BaseUnit, FormulaIngredient, OverageRule, ScanLayout } from "@/lib/formulaRules";
 import { dosageFormEnum } from "./enums";
 import { staff } from "./staff";
 
@@ -22,8 +22,16 @@ export const productFormulas = pgTable(
     dosageForm: dosageFormEnum("dosage_form").notNull(),
     /** Null when the formula covers every strength. */
     strength: text("strength"),
-    /** Extra made per bottle (ml), so each can be filled to volume. */
-    overageMl: numeric("overage_ml").notNull(),
+    /** What the product is measured in — ml for solutions and
+     *  suspensions, g for creams and ointments. */
+    baseUnit: text("base_unit").$type<BaseUnit>().notNull().default("ml"),
+    /** The overage table: how much extra to make for each pack size and
+     *  number of packs, once per batch. */
+    overages: jsonb("overages").$type<OverageRule[]>().notNull(),
+    /** The old single per-bottle overage, replaced by `overages`. Kept only
+     *  so the app deployed before the change keeps working while the new one
+     *  rolls out — nothing reads it now; drop it in a later migration. */
+    legacyOverageMl: numeric("overage_ml"),
     ingredients: jsonb("ingredients").$type<FormulaIngredient[]>().notNull(),
     notes: text("notes"),
     /** For a scanned worksheet: where the quantities go on it. */

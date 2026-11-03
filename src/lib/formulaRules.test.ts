@@ -3,10 +3,12 @@ import {
   calculateBatch,
   checkFormula,
   parseDoseStrength,
+  pickOverage,
   quantityText,
   roundForDisplay,
   type FormulaDefinition,
   type FormulaIngredient,
+  type OverageRule,
 } from "./formulaRules";
 
 const ingredient = (overrides: Partial<FormulaIngredient>): FormulaIngredient => ({
@@ -26,7 +28,14 @@ const melatonin: FormulaDefinition = {
   medicineName: "Melatonin",
   dosageForm: "SOLUTION",
   strength: null,
-  overageMl: 10,
+  baseUnit: "ml",
+  // 10 ml for up to 5 bottles of any size, 20 ml from 6; 300 ml bottles
+  // get their own rows.
+  overages: [
+    { packSize: null, fromPacks: 1, toPacks: 5, amount: 10 },
+    { packSize: null, fromPacks: 6, toPacks: null, amount: 20 },
+    { packSize: 300, fromPacks: 1, toPacks: null, amount: 25 },
+  ],
   notes: null,
   ingredients: [
     ingredient({ id: "api", name: "Melatonin BP", basis: "PER_DOSE", amount: null, amountUnit: "mg", displayUnit: "g" }),
@@ -38,15 +47,15 @@ const melatonin: FormulaDefinition = {
 
 describe("calculateBatch", () => {
   it("works the Melatonin 5mg/5ml example: 1 × 150 ml makes 160 ml", () => {
-    const result = calculateBatch(melatonin, { bottles: 1, packSizeMl: 150, strength: "5mg/5ml" });
+    const result = calculateBatch(melatonin, { packs: 1, packSize: 150, strength: "5mg/5ml" });
     if (!result.ok) throw new Error(result.error);
     const calc = result.value;
-    expect(calc.totalVolumeMl).toBe(160);
-    expect(calc.finalQuantityMl).toBe(150);
+    expect(calc.total).toBe(160);
+    expect(calc.finalQuantity).toBe(150);
     expect(calc.lines.map(quantityText)).toEqual(["0.160 g", "12.8 ml", "0.8 ml", "to 160 ml"]);
     expect(calc.lines[2].optional).toBe(true);
     expect(calc.working).toEqual([
-      "Total volume = 1 bottle × (150 ml + 10 ml overage) = 160 ml",
+      "Total = 1 bottle × 150 ml + 10 ml overage (for any pack size, 1–5 bottles) = 160 ml",
       "Melatonin BP: 5 mg × 160 ml ÷ 5 ml = 160 mg = 0.160 g",
       "Propylene glycol BP: 8 ml × 160 ml ÷ 100 ml = 12.8 ml",
       "Flavour (optional): 0.5 ml × 160 ml ÷ 100 ml = 0.8 ml",
@@ -55,13 +64,48 @@ describe("calculateBatch", () => {
     ]);
   });
 
-  it("applies the overage to every bottle", () => {
-    const result = calculateBatch(melatonin, { bottles: 12, packSizeMl: 100, strength: "10mg/5ml" });
+  it("takes the overage from the table, once for the whole batch", () => {
+    const result = calculateBatch(melatonin, { packs: 12, packSize: 100, strength: "10mg/5ml" });
     if (!result.ok) throw new Error(result.error);
-    expect(result.value.totalVolumeMl).toBe(1320);
-    expect(result.value.finalQuantityMl).toBe(1200);
-    // 10 mg × 1320 ÷ 5 = 2640 mg
-    expect(quantityText(result.value.lines[0])).toBe("2.640 g");
+    expect(result.value.overage).toBe(20);
+    expect(result.value.total).toBe(1220);
+    expect(result.value.finalQuantity).toBe(1200);
+    // 10 mg × 1220 ÷ 5 = 2440 mg
+    expect(quantityText(result.value.lines[0])).toBe("2.440 g");
+
+    // A row for the exact pack size wins over "any pack size".
+    const big = calculateBatch(melatonin, { packs: 2, packSize: 300, strength: "5mg/5ml" });
+    if (!big.ok) throw new Error(big.error);
+    expect(big.value.total).toBe(625);
+  });
+
+  it("won't guess an overage the table doesn't have", () => {
+    const formula: FormulaDefinition = { ...melatonin, overages: [{ packSize: 150, fromPacks: 1, toPacks: 3, amount: 10 }] };
+    const result = calculateBatch(formula, { packs: 4, packSize: 150, strength: "5mg/5ml" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/no row for 4 × 150 ml/);
+  });
+
+  it("makes creams by weight, with a percentage strength", () => {
+    const cream: FormulaDefinition = {
+      medicineName: "Hydrocortisone",
+      dosageForm: "CREAM",
+      strength: null,
+      baseUnit: "g",
+      overages: [{ packSize: null, fromPacks: 1, toPacks: null, amount: 15 }],
+      notes: null,
+      ingredients: [
+        ingredient({ id: "api", name: "Hydrocortisone BP", basis: "PER_DOSE", amount: null, amountUnit: "g", displayUnit: "g" }),
+        ingredient({ id: "wax", name: "Emulsifying wax", amount: 9, amountUnit: "g", displayUnit: "g" }),
+        ingredient({ id: "base", name: "Aqueous cream", basis: "TO_VOLUME", amount: null, amountUnit: "g", displayUnit: "g" }),
+      ],
+    };
+    const result = calculateBatch(cream, { packs: 4, packSize: 50, strength: "1%" });
+    if (!result.ok) throw new Error(result.error);
+    // 4 × 50 g + 15 g = 215 g; 1% of 215 g = 2.15 g; 9 g per 100 g = 19.35 g
+    expect(result.value.lines.map(quantityText)).toEqual(["2.150 g", "19.350 g", "to 215 g"]);
+    expect(result.value.working[0]).toBe("Total = 4 packs × 50 g + 15 g overage (for any pack size, 1 or more packs) = 215 g");
+    expect(calculateBatch(cream, { packs: 4, packSize: 50, strength: "5mg/5ml" }).ok).toBe(false);
   });
 
   it("rounds only the value shown, and says so in the working", () => {
@@ -69,7 +113,7 @@ describe("calculateBatch", () => {
       ...melatonin,
       ingredients: [ingredient({ name: "Sodium citrate dihydrate BP", amount: 0.197, amountUnit: "g", displayUnit: "g", decimals: 2 })],
     };
-    const result = calculateBatch(formula, { bottles: 1, packSizeMl: 150, strength: null });
+    const result = calculateBatch(formula, { packs: 1, packSize: 150, strength: null });
     if (!result.ok) throw new Error(result.error);
     expect(result.value.lines[0].value).toBeCloseTo(0.3152, 10);
     expect(result.value.lines[0].text).toBe("0.32");
@@ -85,16 +129,17 @@ describe("calculateBatch", () => {
         ingredient({ name: "API", basis: "PER_DOSE", amount: 250, amountUnit: "mcg", doseVolumeMl: 5, displayUnit: "mg", decimals: 2 }),
       ],
     };
-    const result = calculateBatch(formula, { bottles: 2, packSizeMl: 50, strength: "anything" });
+    const result = calculateBatch(formula, { packs: 2, packSize: 50, strength: "anything" });
     if (!result.ok) throw new Error(result.error);
-    expect(result.value.lines.map(quantityText)).toEqual(["2.000 g", "6.00 mg"]);
+    // 2 × 50 ml + 10 ml = 110 ml
+    expect(result.value.lines.map(quantityText)).toEqual(["2.000 g", "5.50 mg"]);
     expect(result.value.lines[0].working).toBe("Fixed: fixed amount, 2 g");
-    expect(result.value.lines[1].working).toBe("API: 250 mcg × 120 ml ÷ 5 ml = 6000 mcg = 6.00 mg");
+    expect(result.value.lines[1].working).toBe("API: 250 mcg × 110 ml ÷ 5 ml = 5500 mcg = 5.50 mg");
   });
 
   it("refuses zero, negative and part bottles, and a strength it can't read", () => {
-    const run = (bottles: number, packSizeMl: number, strength = "5mg/5ml") =>
-      calculateBatch(melatonin, { bottles, packSizeMl, strength });
+    const run = (packs: number, packSize: number, strength = "5mg/5ml") =>
+      calculateBatch(melatonin, { packs, packSize, strength });
     expect(run(0, 150).ok).toBe(false);
     expect(run(-1, 150).ok).toBe(false);
     expect(run(1.5, 150).ok).toBe(false);
@@ -103,7 +148,7 @@ describe("calculateBatch", () => {
     expect(run(1, Number.NaN).ok).toBe(false);
     const unreadable = run(1, 150, "5mg");
     expect(unreadable.ok).toBe(false);
-    if (!unreadable.ok) expect(unreadable.error).toMatch(/isn't an amount in a volume/);
+    if (!unreadable.ok) expect(unreadable.error).toMatch(/isn't an amount in the product/);
   });
 
   it("refuses volumes that leave nothing to make up", () => {
@@ -111,16 +156,21 @@ describe("calculateBatch", () => {
       ...melatonin,
       ingredients: [ingredient({ amount: 100 }), ingredient({ id: "d", basis: "TO_VOLUME", amount: null })],
     };
-    expect(calculateBatch(formula, { bottles: 1, packSizeMl: 150, strength: null }).ok).toBe(false);
+    expect(calculateBatch(formula, { packs: 1, packSize: 150, strength: null }).ok).toBe(false);
   });
 });
 
 describe("parseDoseStrength", () => {
   it("reads an amount in a volume", () => {
-    expect(parseDoseStrength("5mg/5ml")).toEqual({ amount: 5, unit: "mg", volumeMl: 5 });
-    expect(parseDoseStrength("5 mg in 5 ml")).toEqual({ amount: 5, unit: "mg", volumeMl: 5 });
-    expect(parseDoseStrength("1mg/ml")).toEqual({ amount: 1, unit: "mg", volumeMl: 1 });
-    expect(parseDoseStrength("250µg/5ml")).toEqual({ amount: 250, unit: "mcg", volumeMl: 5 });
+    expect(parseDoseStrength("5mg/5ml")).toEqual({ amount: 5, unit: "mg", per: 5 });
+    expect(parseDoseStrength("5 mg in 5 ml")).toEqual({ amount: 5, unit: "mg", per: 5 });
+    expect(parseDoseStrength("1mg/ml")).toEqual({ amount: 1, unit: "mg", per: 1 });
+    expect(parseDoseStrength("250µg/5ml")).toEqual({ amount: 250, unit: "mcg", per: 5 });
+    expect(parseDoseStrength("20mg/g", "g")).toEqual({ amount: 20, unit: "mg", per: 1 });
+    expect(parseDoseStrength("1%", "g")).toEqual({ amount: 1, unit: "g", per: 100 });
+    expect(parseDoseStrength("0.5% w/v")).toEqual({ amount: 0.5, unit: "g", per: 100 });
+    // Per gram isn't per ml.
+    expect(parseDoseStrength("20mg/g")).toBeNull();
     expect(parseDoseStrength("500mg")).toBeNull();
     expect(parseDoseStrength("0mg/5ml")).toBeNull();
     expect(parseDoseStrength(null)).toBeNull();
@@ -135,12 +185,25 @@ describe("roundForDisplay", () => {
   });
 });
 
+describe("pickOverage", () => {
+  const rules: OverageRule[] = [
+    { packSize: null, fromPacks: 1, toPacks: 5, amount: 10 },
+    { packSize: 150, fromPacks: 1, toPacks: 2, amount: 12 },
+  ];
+  it("prefers a row for the exact pack size, and covers ranges inclusively", () => {
+    expect(pickOverage(rules, 2, 150)?.amount).toBe(12);
+    expect(pickOverage(rules, 3, 150)?.amount).toBe(10);
+    expect(pickOverage(rules, 5, 100)?.amount).toBe(10);
+    expect(pickOverage(rules, 6, 100)).toBeNull();
+  });
+});
+
 describe("checkFormula", () => {
   const valid = {
     medicineName: " Melatonin ",
     dosageForm: "SOLUTION",
     strength: "",
-    overageMl: "10",
+    overages: [{ packSize: "", fromPacks: "1", toPacks: "", amount: "10" }],
     ingredients: [
       { id: "api", name: "Melatonin BP", basis: "PER_DOSE", amount: "", amountUnit: "mg", displayUnit: "g", decimals: "" },
       { id: "d", name: "Diluent", basis: "TO_VOLUME", amountUnit: "g", displayUnit: "g", amount: "5" },
@@ -152,7 +215,8 @@ describe("checkFormula", () => {
     if (!result.ok) throw new Error(result.error);
     expect(result.value.medicineName).toBe("Melatonin");
     expect(result.value.strength).toBeNull();
-    expect(result.value.overageMl).toBe(10);
+    expect(result.value.baseUnit).toBe("ml");
+    expect(result.value.overages).toEqual([{ packSize: null, fromPacks: 1, toPacks: null, amount: 10 }]);
     expect(result.value.ingredients[0]).toMatchObject({ amount: null, doseVolumeMl: null, decimals: null });
     // Made up to volume is always ml, with no amount.
     expect(result.value.ingredients[1]).toMatchObject({ amount: null, amountUnit: "ml", displayUnit: "ml" });
@@ -170,7 +234,15 @@ describe("checkFormula", () => {
     expect(checkFormula(withIngredient({ decimals: 1.5 })).ok).toBe(false);
     expect(checkFormula(withIngredient({ basis: "PER_DOSE", amount: 5, amountUnit: "mg", displayUnit: "g" })).ok).toBe(false);
     expect(checkFormula(withIngredient({ basis: "PER_DOSE", amount: 5, amountUnit: "mg", displayUnit: "g", doseVolumeMl: 0 })).ok).toBe(false);
-    expect(checkFormula({ ...valid, overageMl: -1 }).ok).toBe(false);
+    const overage = (rows: Record<string, unknown>[]) => checkFormula({ ...valid, overages: rows });
+    expect(overage([]).ok).toBe(false);
+    expect(overage([{ fromPacks: 1, amount: -1 }]).ok).toBe(false);
+    expect(overage([{ fromPacks: 0, amount: 5 }]).ok).toBe(false);
+    expect(overage([{ fromPacks: 3, toPacks: 2, amount: 5 }]).ok).toBe(false);
+    expect(overage([{ packSize: 0, fromPacks: 1, amount: 5 }]).ok).toBe(false);
+    // Overlapping rows for the same pack size can't both apply.
+    expect(overage([{ fromPacks: 1, toPacks: 5, amount: 5 }, { fromPacks: 5, amount: 9 }]).ok).toBe(false);
+    expect(overage([{ fromPacks: 1, toPacks: 5, amount: 5 }, { packSize: 150, fromPacks: 5, amount: 9 }]).ok).toBe(true);
     expect(checkFormula({ ...valid, ingredients: [] }).ok).toBe(false);
     expect(
       checkFormula({ ...valid, ingredients: [valid.ingredients[1], { ...valid.ingredients[1], id: "e" }] }).ok,

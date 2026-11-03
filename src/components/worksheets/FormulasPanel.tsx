@@ -4,9 +4,10 @@
  * The Formulas tab of the Worksheets page: each product's formula, as data —
  * what's in it and how each amount scales with the batch — so a batch's
  * generated worksheet can have its Quantity Required column and calculation
- * filled in (src/lib/formulaRules.ts). Everyone can read them and try one
- * out with a number of bottles; the people with worksheet access add and
- * change them. A change is saved as a new version.
+ * filled in (src/lib/formulaRules.ts). Each has an overage table: how much
+ * extra to make for each pack size and number of packs. Everyone can read
+ * them and try one out; the people with worksheet access add and change
+ * them. A change is saved as a new version.
  */
 import { useMemo, useState } from "react";
 import { format } from "date-fns";
@@ -14,35 +15,41 @@ import { Calculator, Flask, PencilSimple, Plus, Trash, X } from "@phosphor-icons
 import { Button, Card, EmptyState, ErrorNotice, Field, Input, Modal, Select, Skeleton, Textarea } from "@/components/ui";
 import {
   DEFAULT_DECIMALS,
-  DEFAULT_OVERAGE_ML,
   FORMULA_BASES,
   FORMULA_UNITS,
+  basisLabel,
   calculateBatch,
   checkFormula,
+  defaultBaseUnit,
+  packRange,
   parseDoseStrength,
+  plain,
   quantityText,
+  type BaseUnit,
   type FormulaBasis,
   type FormulaDefinition,
   type FormulaUnit,
+  type OverageRule,
 } from "@/lib/formulaRules";
 import { saveFormula, withdrawFormula, type Formula } from "@/lib/formulas";
 import { DOSAGE_FORMS, dosageFormInfo, type DosageForm } from "@/lib/products";
 
-const basisLabel = (basis: FormulaBasis) => FORMULA_BASES.find((b) => b.value === basis)?.label ?? basis;
-
 /** "8 ml per 100 ml", "5 mg per 5 ml", "the batch's strength", "made up to volume". */
-function amountLabel(i: Formula["ingredients"][number]): string {
+function amountLabel(i: Formula["ingredients"][number], unit: BaseUnit): string {
   switch (i.basis) {
     case "PER_100ML":
-      return `${i.amount} ${i.amountUnit} per 100 ml`;
+      return `${i.amount} ${i.amountUnit} per 100 ${unit}`;
     case "PER_DOSE":
-      return i.amount === null ? "the batch's strength" : `${i.amount} ${i.amountUnit} per ${i.doseVolumeMl} ml`;
+      return i.amount === null ? "the batch's strength" : `${i.amount} ${i.amountUnit} per ${i.doseVolumeMl} ${unit}`;
     case "FIXED":
       return `${i.amount} ${i.amountUnit}`;
     case "TO_VOLUME":
-      return "made up to volume";
+      return unit === "g" ? "made up to weight" : "made up to volume";
   }
 }
+
+const packSizeLabel = (rule: OverageRule, unit: BaseUnit) =>
+  rule.packSize === null ? "Any pack size" : `${plain(rule.packSize)} ${unit}`;
 
 function productTitle(f: Pick<Formula, "medicineName" | "dosageForm" | "strength">): string {
   return [f.medicineName, f.strength, dosageFormInfo(f.dosageForm)?.label].filter(Boolean).join(" ");
@@ -77,9 +84,10 @@ export function FormulasPanel({
     <>
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-2xl text-sm text-[var(--muted-foreground)]">
-          How each solution&apos;s ingredients scale with the batch. When a batch is confirmed, its generated worksheet
-          gets each Quantity Required and the working filled in from here — total volume is bottles × (pack size +
-          overage).
+          How each solution, suspension, cream and ointment&apos;s ingredients scale with the batch. When a batch is
+          confirmed, its generated worksheet gets each Quantity Required and the working filled in from here — the
+          total made is packs × pack size + the overage set in the formula&apos;s table for that pack size and number
+          of packs.
         </p>
         {canManage ? (
           <Button size="sm" variant="primary" onClick={() => setEditing("new")}>
@@ -172,7 +180,7 @@ function FormulaCard({
           </p>
           <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">
             Version {formula.version} · {formula.createdByName} · {format(new Date(formula.createdAt), "d MMM yyyy")} ·
-            overage {formula.overageMl} ml per bottle
+            made by {formula.baseUnit === "g" ? "weight (g)" : "volume (ml)"}
             {formula.hasScanLayout ? " · placed on its scanned worksheet" : ""}
           </p>
           {formula.notes ? <p className="mt-1 text-xs text-[var(--muted-foreground)]">{formula.notes}</p> : null}
@@ -213,8 +221,8 @@ function FormulaCard({
                   {i.name}
                   {i.optional ? <span className="ml-1.5 text-xs text-[var(--muted-foreground)]">(optional)</span> : null}
                 </td>
-                <td className="px-4 py-2">{basisLabel(i.basis)}</td>
-                <td className="px-4 py-2">{amountLabel(i)}</td>
+                <td className="px-4 py-2">{basisLabel(i.basis, formula.baseUnit)}</td>
+                <td className="px-4 py-2">{amountLabel(i, formula.baseUnit)}</td>
                 <td className="px-4 py-2">
                   {i.displayUnit}
                   {i.basis !== "TO_VOLUME" ? (
@@ -228,6 +236,27 @@ function FormulaCard({
             ))}
           </tbody>
         </table>
+      </div>
+
+      <div className="border-t border-[var(--border)] px-4 py-2.5">
+        <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-[var(--muted-foreground)]">
+          Overage — added once per batch
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {formula.overages.map((rule, i) => (
+            <span
+              key={i}
+              className="rounded border border-[var(--border)] bg-[var(--surface-sunken)] px-2 py-1 text-[12px] tabular-nums"
+            >
+              <span className="text-[var(--muted-foreground)]">
+                {packSizeLabel(rule, formula.baseUnit)}, {packRange(rule)} {rule.toPacks === 1 && rule.fromPacks === 1 ? "pack" : "packs"}:
+              </span>{" "}
+              <strong className="text-foreground">
+                {plain(rule.amount)} {formula.baseUnit}
+              </strong>
+            </span>
+          ))}
+        </div>
       </div>
 
       {trying ? (
@@ -244,33 +273,46 @@ function FormulaCard({
 /** Works a batch out from the formula as typed — the same calculation the
  *  generated worksheet uses. */
 function TryFormula({ formula, idPrefix = "try" }: { formula: FormulaDefinition; idPrefix?: string }) {
+  const unit = formula.baseUnit;
   const followsBatch = formula.ingredients.some((i) => i.basis === "PER_DOSE" && i.amount === null);
-  const [bottles, setBottles] = useState("1");
-  const [packSize, setPackSize] = useState("150");
-  const [strength, setStrength] = useState(formula.strength ?? (followsBatch ? "5mg/5ml" : ""));
+  const examplePack = formula.overages.find((r) => r.packSize !== null)?.packSize;
+  const [packs, setPacks] = useState("1");
+  const [packSize, setPackSize] = useState(String(examplePack ?? (unit === "g" ? 50 : 150)));
+  const [strength, setStrength] = useState(formula.strength ?? (followsBatch ? (unit === "g" ? "1%" : "5mg/5ml") : ""));
 
   const result = calculateBatch(formula, {
-    bottles: bottles.trim() === "" ? NaN : Number(bottles),
-    packSizeMl: packSize.trim() === "" ? NaN : Number(packSize),
+    packs: packs.trim() === "" ? NaN : Number(packs),
+    packSize: packSize.trim() === "" ? NaN : Number(packSize),
     strength: strength.trim() || null,
   });
 
   return (
     <div className="grid gap-3">
       <div className="grid gap-3 sm:grid-cols-3">
-        <Field label="Bottles" htmlFor={`${idPrefix}-bottles`}>
-          <Input id={`${idPrefix}-bottles`} inputMode="numeric" value={bottles} onChange={(e) => setBottles(e.target.value)} />
+        <Field label={unit === "ml" ? "Bottles" : "Packs"} htmlFor={`${idPrefix}-bottles`}>
+          <Input id={`${idPrefix}-bottles`} inputMode="numeric" value={packs} onChange={(e) => setPacks(e.target.value)} />
         </Field>
-        <Field label="Pack size (ml)" htmlFor={`${idPrefix}-pack`}>
+        <Field label={`Pack size (${unit})`} htmlFor={`${idPrefix}-pack`}>
           <Input id={`${idPrefix}-pack`} inputMode="decimal" value={packSize} onChange={(e) => setPackSize(e.target.value)} />
         </Field>
         {followsBatch ? (
           <Field
             label="Batch strength"
             htmlFor={`${idPrefix}-strength`}
-            error={strength.trim() && !parseDoseStrength(strength) ? "An amount in a volume, e.g. 5mg/5ml" : undefined}
+            error={
+              strength.trim() && !parseDoseStrength(strength, unit)
+                ? unit === "g"
+                  ? "An amount in the product, e.g. 20mg/g or 1%"
+                  : "An amount in a volume, e.g. 5mg/5ml"
+                : undefined
+            }
           >
-            <Input id={`${idPrefix}-strength`} value={strength} onChange={(e) => setStrength(e.target.value)} placeholder="5mg/5ml" />
+            <Input
+              id={`${idPrefix}-strength`}
+              value={strength}
+              onChange={(e) => setStrength(e.target.value)}
+              placeholder={unit === "g" ? "1%" : "5mg/5ml"}
+            />
           </Field>
         ) : null}
       </div>
@@ -299,13 +341,19 @@ function TryFormula({ formula, idPrefix = "try" }: { formula: FormulaDefinition;
               <tr>
                 <td className="py-1.5 pr-3 font-semibold">Final product quantity</td>
                 <td className="py-1.5 text-right font-mono font-semibold tabular-nums">
-                  {result.value.finalQuantityMl} ml
+                  {result.value.finalQuantity} {unit}
                 </td>
               </tr>
             </tbody>
           </table>
           <div>
-            <p className="mb-1 text-xs font-bold uppercase tracking-wide text-[var(--muted-foreground)]">Calculation</p>
+            <p className="mb-1 text-xs font-bold uppercase tracking-wide text-[var(--muted-foreground)]">
+              Calculation
+              <span className="ml-1.5 font-normal normal-case tracking-normal">
+                — overage {plain(result.value.overage)} {unit}, from the row for{" "}
+                {packSizeLabel(result.value.overageRule, unit).toLowerCase()}, {packRange(result.value.overageRule)} packs
+              </span>
+            </p>
             <ol className="grid gap-0.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 font-mono text-[12px] leading-relaxed">
               {result.value.working.map((line, i) => (
                 <li key={i}>{line}</li>
@@ -348,6 +396,22 @@ const blankIngredient = (basis: FormulaBasis = "PER_100ML"): IngredientDraft => 
 
 const asText = (n: number | null) => (n === null ? "" : String(n));
 
+interface OverageDraft {
+  key: string;
+  packSize: string;
+  fromPacks: string;
+  toPacks: string;
+  amount: string;
+}
+
+const overageDraft = (rule?: OverageRule): OverageDraft => ({
+  key: newId(),
+  packSize: rule ? asText(rule.packSize) : "",
+  fromPacks: rule ? String(rule.fromPacks) : "1",
+  toPacks: rule ? asText(rule.toPacks) : "",
+  amount: rule ? String(rule.amount) : "",
+});
+
 function FormulaEditor({
   staffId,
   formula,
@@ -362,7 +426,10 @@ function FormulaEditor({
   const [medicineName, setMedicineName] = useState(formula?.medicineName ?? "");
   const [dosageForm, setDosageForm] = useState<DosageForm>(formula?.dosageForm ?? "SOLUTION");
   const [strength, setStrength] = useState(formula?.strength ?? "");
-  const [overage, setOverage] = useState(String(formula?.overageMl ?? DEFAULT_OVERAGE_ML));
+  const [baseUnit, setBaseUnit] = useState<BaseUnit>(formula?.baseUnit ?? "ml");
+  const [overages, setOverages] = useState<OverageDraft[]>(
+    formula ? formula.overages.map(overageDraft) : [{ ...overageDraft(), amount: "10" }],
+  );
   const [notes, setNotes] = useState(formula?.notes ?? "");
   const [ingredients, setIngredients] = useState<IngredientDraft[]>(
     formula
@@ -383,15 +450,29 @@ function FormulaEditor({
         medicineName,
         dosageForm,
         strength,
-        overageMl: overage,
+        baseUnit,
+        overages,
         notes,
         ingredients,
       }),
-    [medicineName, dosageForm, strength, overage, notes, ingredients],
+    [medicineName, dosageForm, strength, baseUnit, overages, notes, ingredients],
   );
 
   function update(index: number, patch: Partial<IngredientDraft>) {
     setIngredients((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+  }
+
+  function updateOverage(index: number, patch: Partial<OverageDraft>) {
+    setOverages((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
+
+  /** Creams and ointments are made by weight; the made-up-to ingredient
+   *  follows. */
+  function changeBaseUnit(unit: BaseUnit) {
+    setBaseUnit(unit);
+    setIngredients((prev) =>
+      prev.map((item) => (item.basis === "TO_VOLUME" ? { ...item, amountUnit: unit, displayUnit: unit } : item)),
+    );
   }
 
   async function submit() {
@@ -437,7 +518,16 @@ function FormulaEditor({
             <Input id="f-name" value={medicineName} onChange={(e) => setMedicineName(e.target.value)} disabled={saving} />
           </Field>
           <Field label="Type" htmlFor="f-form" required>
-            <Select id="f-form" value={dosageForm} onChange={(e) => setDosageForm(e.target.value as DosageForm)} disabled={saving}>
+            <Select
+              id="f-form"
+              value={dosageForm}
+              onChange={(e) => {
+                const form = e.target.value as DosageForm;
+                setDosageForm(form);
+                changeBaseUnit(defaultBaseUnit(form));
+              }}
+              disabled={saving}
+            >
               {DOSAGE_FORMS.map((f) => (
                 <option key={f.value} value={f.value}>
                   {f.label}
@@ -448,10 +538,104 @@ function FormulaEditor({
           <Field label="Strength" htmlFor="f-strength" helper="Blank for every strength">
             <Input id="f-strength" value={strength} onChange={(e) => setStrength(e.target.value)} placeholder="e.g. 5mg/5ml" disabled={saving} />
           </Field>
-          <Field label="Overage per bottle (ml)" htmlFor="f-overage" required>
-            <Input id="f-overage" inputMode="decimal" value={overage} onChange={(e) => setOverage(e.target.value)} disabled={saving} />
+          <Field label="Made by" htmlFor="f-unit" required>
+            <Select id="f-unit" value={baseUnit} onChange={(e) => changeBaseUnit(e.target.value as BaseUnit)} disabled={saving}>
+              <option value="ml">Volume (ml)</option>
+              <option value="g">Weight (g)</option>
+            </Select>
           </Field>
         </div>
+
+        <fieldset className="min-w-0">
+          <legend className="mb-1 text-xs font-bold text-foreground">Overage table</legend>
+          <p className="mb-1.5 text-xs text-[var(--muted-foreground)]">
+            How much extra to make, added once for the whole batch. Leave the pack size blank for a row that covers any
+            pack size (a row for the exact pack size wins), and &ldquo;to&rdquo; blank for &ldquo;and over&rdquo;. A
+            batch with no matching row won&apos;t be worked out.
+          </p>
+          <div className="overflow-x-auto rounded-md border border-[var(--border)]">
+            <table className="w-full min-w-[560px] text-sm">
+              <thead>
+                <tr className="border-b border-[var(--border)] bg-[var(--surface-sunken)] text-left text-xs font-bold text-[var(--muted-foreground)]">
+                  <th className="px-2 py-1.5">Pack size ({baseUnit})</th>
+                  <th className="px-2 py-1.5">From (packs)</th>
+                  <th className="px-2 py-1.5">To (packs)</th>
+                  <th className="px-2 py-1.5">Overage ({baseUnit})</th>
+                  <th className="px-2 py-1.5" />
+                </tr>
+              </thead>
+              <tbody>
+                {overages.map((row, index) => (
+                  <tr key={row.key} className="border-b border-[var(--border)] last:border-b-0">
+                    <td className="px-2 py-1.5">
+                      <Input
+                        className="h-9"
+                        inputMode="decimal"
+                        aria-label={`Overage row ${index + 1} pack size`}
+                        value={row.packSize}
+                        onChange={(e) => updateOverage(index, { packSize: e.target.value })}
+                        placeholder="any"
+                        disabled={saving}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <Input
+                        className="h-9"
+                        inputMode="numeric"
+                        aria-label={`Overage row ${index + 1} from packs`}
+                        value={row.fromPacks}
+                        onChange={(e) => updateOverage(index, { fromPacks: e.target.value })}
+                        disabled={saving}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <Input
+                        className="h-9"
+                        inputMode="numeric"
+                        aria-label={`Overage row ${index + 1} to packs`}
+                        value={row.toPacks}
+                        onChange={(e) => updateOverage(index, { toPacks: e.target.value })}
+                        placeholder="and over"
+                        disabled={saving}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <Input
+                        className="h-9"
+                        inputMode="decimal"
+                        aria-label={`Overage row ${index + 1} amount`}
+                        value={row.amount}
+                        onChange={(e) => updateOverage(index, { amount: e.target.value })}
+                        disabled={saving}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Remove overage row ${index + 1}`}
+                        onClick={() => setOverages((prev) => prev.filter((_, i) => i !== index))}
+                        disabled={saving || overages.length === 1}
+                      >
+                        <X size={14} weight="bold" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="mt-2"
+            onClick={() => setOverages((prev) => [...prev, overageDraft()])}
+            disabled={saving}
+          >
+            <Plus size={14} weight="bold" />
+            Add overage row
+          </Button>
+        </fieldset>
 
         <fieldset className="min-w-0">
           <legend className="mb-1.5 text-xs font-bold text-foreground">Ingredients</legend>
@@ -462,7 +646,7 @@ function FormulaEditor({
                   <th className="px-2 py-1.5">Raw material</th>
                   <th className="px-2 py-1.5">Basis</th>
                   <th className="px-2 py-1.5">Amount</th>
-                  <th className="px-2 py-1.5">Per dose of (ml)</th>
+                  <th className="px-2 py-1.5">Per dose of ({baseUnit})</th>
                   <th className="px-2 py-1.5">Shown in</th>
                   <th className="px-2 py-1.5">Decimals</th>
                   <th className="px-2 py-1.5">Optional</th>
@@ -493,20 +677,23 @@ function FormulaEditor({
                           value={item.basis}
                           onChange={(e) => {
                             const basis = e.target.value as FormulaBasis;
-                            update(index, basis === "TO_VOLUME" ? { basis, amountUnit: "ml", displayUnit: "ml", amount: "" } : { basis });
+                            update(
+                              index,
+                              basis === "TO_VOLUME" ? { basis, amountUnit: baseUnit, displayUnit: baseUnit, amount: "" } : { basis },
+                            );
                           }}
                           disabled={saving}
                         >
                           {FORMULA_BASES.map((b) => (
-                            <option key={b.value} value={b.value}>
-                              {b.label}
+                            <option key={b} value={b}>
+                              {basisLabel(b, baseUnit)}
                             </option>
                           ))}
                         </Select>
                       </td>
                       <td className="px-2 py-1.5">
                         {toVolume ? (
-                          <span className="block pt-2 text-[var(--muted-foreground)]">to volume</span>
+                          <span className="block pt-2 text-[var(--muted-foreground)]">to {baseUnit === "g" ? "weight" : "volume"}</span>
                         ) : (
                           <div className="flex gap-1">
                             <Input
@@ -609,8 +796,8 @@ function FormulaEditor({
               Add ingredient
             </Button>
             <p className="text-xs text-[var(--muted-foreground)]">
-              Per dose with the amount left blank follows the batch&apos;s strength (5mg/5ml). Decimals left blank: g 3,
-              ml 1.
+              Per dose with the amount left blank follows the batch&apos;s strength ({baseUnit === "g" ? "20mg/g or 1%" : "5mg/5ml"}).
+              Decimals left blank: g 3, ml 1.
             </p>
           </div>
         </fieldset>

@@ -51,8 +51,10 @@ export type WorksheetGenerateResult =
       notFound: string[];
       calculation: {
         formulaVersion: number;
-        totalVolumeMl: number;
-        finalQuantityMl: number;
+        unit: "ml" | "g";
+        total: number;
+        overage: number;
+        finalQuantity: number;
         quantities: { name: string; quantity: string; optional: boolean }[];
         addedPage: boolean;
       } | null;
