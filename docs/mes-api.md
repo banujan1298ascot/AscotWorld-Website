@@ -52,7 +52,7 @@ like any other batch, then waits.
 | 3 | Dispensary | no | no | no |
 | 4 | Bespoke Lab | **yes** | no | **yes** |
 | 5 | Production Check | **yes** | no | no |
-| 6 | Releasor | **yes** | **yes** | no |
+| 6 | Releaser | **yes** | **yes** | no |
 | 7 | Warehouse | no | no | no |
 
 Only Check 4 onward can fail a batch (spec 3.2) — enforced by checking the

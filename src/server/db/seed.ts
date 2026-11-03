@@ -79,7 +79,7 @@ const BESPOKE_STAGES = [
     operatorRole: "bespoke_production",
   },
   { sequenceNumber: 5, name: "Production Check", failAuthority: true, isTerminalReleaseStage: false, supervised: false },
-  { sequenceNumber: 6, name: "Releasor", failAuthority: true, isTerminalReleaseStage: true, supervised: false },
+  { sequenceNumber: 6, name: "Releaser", failAuthority: true, isTerminalReleaseStage: true, supervised: false },
   { sequenceNumber: 7, name: "Warehouse", failAuthority: false, isTerminalReleaseStage: false, supervised: false },
 ];
 
